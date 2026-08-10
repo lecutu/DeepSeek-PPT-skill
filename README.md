@@ -405,6 +405,19 @@ This is not a "generate and pray" system. It's a declarative constraint solver w
 
 If `build().ok` is `true`, the file is visually correct. Guaranteed. No `.pptx` renderer required.
 
+## Known Limitations — Honest Disclaimer
+
+**This engine has no visual taste. Output can still be ugly.**
+
+The engine guarantees *technical* correctness: no overflow, no invisible text, no broken contrast, no layout collisions. It does **not** guarantee *aesthetic* quality. A constraint solver avoids mistakes; it cannot compose a beautiful slide. What it produces is safe, clean, and boring — and sometimes actively ugly when the declarative prompt is thin.
+
+Two consequences, stated plainly:
+
+1. **The AI cannot see the result, and neither can the engine.** Every diagnostic is geometric, not perceptual. Nothing in the pipeline judges whether a slide "looks good" — only whether it obeys rules. Taste is not a rule; it's a cultivated judgment no hardcoded check can encode.
+2. **Quality scales with prompt quality.** A deck built from `b.title()` + `b.bullet()` calls is functional and forgettable. A deck built from a detailed design brief — explicit color values, font sizes, per-page layout types (title_hero / title_3col / title_big_number / ...), whitespace ≥ 35%, shape semantics, 3–5 words per speaker note — is a different artifact entirely. **The more specific the prompt, the better the output. The engine rewards exhaustive prompts and punishes vague ones.**
+
+If the output looks bad, the fix is almost never more engine code. It is a better brief.
+
 ---
 
 **DeepSeek PPT** is MIT Licensed. Built for AI agents. Blind-proof by design.

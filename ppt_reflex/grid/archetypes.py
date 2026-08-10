@@ -225,6 +225,22 @@ def get_archetype(archetype_id: str) -> SlideArchetype:
     return ARCHETYPES[archetype_id]
 
 
+_BUILTIN_IDS = frozenset(ARCHETYPES)
+
+
+def register_archetype(archetype: SlideArchetype) -> None:
+    """Register a runtime archetype (e.g. a layout extracted from a reference
+    PPTX). Registered archetypes are visible to get_archetype() and
+    list_archetypes() exactly like built-ins."""
+    ARCHETYPES[archetype.id] = archetype
+
+
+def unregister_archetype(archetype_id: str) -> None:
+    """Remove a runtime-registered archetype. Built-ins are not removable."""
+    if archetype_id in ARCHETYPES and archetype_id not in _BUILTIN_IDS:
+        del ARCHETYPES[archetype_id]
+
+
 def list_archetypes() -> list[dict]:
     """Lightweight list for AI agent to pick an archetype."""
     return [
