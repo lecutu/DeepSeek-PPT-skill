@@ -44,6 +44,14 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
+    "marketplace": {
+      "profiles": [
+        "web"
+      ],
+      "requiresRestart": true,
+      "requiresBuildApproval": false,
+      "manualSteps": "Requires ppt-reflex engine repo with _dsh_ppt_runner.py; set config python/cwd in the bundle row."
+    },
     "client": {
       "platform": "web",
       "inject": [
