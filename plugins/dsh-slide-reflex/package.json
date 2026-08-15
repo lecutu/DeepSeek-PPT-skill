@@ -1,0 +1,57 @@
+{
+  "name": "dsh-slide-reflex",
+  "version": "0.1.0",
+  "description": "Vision-free PPT engine bridge + live per-page preview panel with click/box-select feedback loop (ppt-reflex v0.6.0)",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./typert": "./lib/typert.js",
+    "./remote": "./lib/remote.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/typert.js",
+    "lib/remote.js",
+    "lib/client.js"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "ppt",
+    "powerpoint",
+    "pptx",
+    "presentation",
+    "slides",
+    "slide-deck",
+    "feedback-loop",
+    "preview"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lecutu/DeepSeek-PPT-skill.git",
+    "directory": "plugins/dsh-slide-reflex"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "*",
+    "zod": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}

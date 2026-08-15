@@ -1,0 +1,5 @@
+# dsh-slide-reflex bundle patch — one host entry; the browser half is picked
+# up from the same loader entry via the dsh.client declaration in package.json.
+- insert:
+    - id: dsh-slide-reflex
+      name: 'dsh-slide-reflex'
