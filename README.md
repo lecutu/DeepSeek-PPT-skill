@@ -1,423 +1,245 @@
-# ppt_reflex — Blind-Proof PowerPoint. No Vision Needed.
+# ppt-reflex · Correct PowerPoint without a vision model
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-46%20passing-brightgreen.svg)](ppt_reflex/grid/tests/)
-[![Claude Code Skill](https://img.shields.io/badge/claude--code-skill-blue.svg)](https://github.com/topics/claude-code-skill)
-[![Built for DeepSeek](https://img.shields.io/badge/built%20for-DeepSeek-536DFE.svg)](https://platform.deepseek.com/)
-[![LLMs: Claude, GPT, Gemini](https://img.shields.io/badge/LLMs-Claude%20%7C%20GPT%20%7C%20Gemini-8e44ad.svg)]()
+[![Tests](https://img.shields.io/badge/tests-72%20passing-brightgreen.svg)](ppt_reflex/grid/tests/)
+[![Version](https://img.shields.io/badge/version-0.6.0-536DFE.svg)](pyproject.toml)
+[![Vision-free](https://img.shields.io/badge/vision-free-8e44ad.svg)]()
+[![DSH plugin](https://img.shields.io/badge/DSH-dynamic%20plugin-536DFE.svg)]()
 
-**DeepSeek can't see images. This gives it the power to create perfect PowerPoints anyway.**
+**ppt-reflex is an engine that lets LLMs without vision produce *correct* PowerPoint decks — plus a DeepSeek Harness (DSH) plugin that adds live preview and a feedback loop.**
 
-**DeepSeek PPT** — an AI-native PPTX engine built around a constraint solver. No vision. No guessing. No praying.
+Blind LLMs — DeepSeek first, but any text-only model — cannot see the `.pptx` they generate. The usual workaround makes the model guess harder: it writes coordinates, crosses its fingers, and hopes. ppt-reflex inverts that pipeline. The AI never writes a coordinate and never guesses how anything looks. It declares **layout intent** — an archetype, parameters, a recipe, a decoration skin — and a deterministic constraint-solving engine computes every coordinate, measures every glyph, and reports back in text.
 
-Every LLM is blind to its own `.pptx` output — it writes code, crosses its fingers, and hopes. Other tools solve this by making the AI guess harder. ppt_reflex doesn't guess. It runs a real constraint-solving engine, returns structured diagnostics the AI can read and act on, and guarantees visual correctness before the file is written.
+Three things replace vision:
 
-The key insight: it's not a one-way pipeline. It's a **closed loop**. AI declares intent → engine computes layout → engine returns per-element diagnostics → AI reads them, decides what to fix → re-enters the pipeline. The AI doesn't need to see. It needs to read. And every LLM — DeepSeek included — can read structured JSON. That's what makes **DeepSeek PPT** different from every other PPTX generator: the blind LLM is the primary user, not an afterthought.
+1. **Real font measurement** — PIL glyph-level FreeType metrics (CJK-aware, East Asian Width-aware) compute how much space text actually needs *before* render.
+2. **Structured diagnostics** — every build returns machine-readable issues with `phase`, `kind`, `severity`, `message`, and `options` the AI can act on.
+3. **Three-tier ASCII feedback** — an L0 structure map, an L1 element map, and an L2 numeric text table give the model a "picture" it can actually read.
+
+The AI reads the diagnostics, edits its declaration, and re-runs. A `CircuitBreaker` watches for mechanical micro-adjustments and forces a design-level rethink before the loop burns itself out.
 
 ## The Agent-Engine Loop
 
 ```
-  AI AGENT                            ENGINE
-  ─────────                           ──────
-  declares intent                     computes layout
-  ("title, 3 bullets,                 (geometry, contrast,
-   image hero_right")                 overflow, density)
-        │                                    │
-        └───────────►  PPTBuilder  ──────────►│
-                                              │
-                                    5-phase pipeline
-                                    AestheticsEngine
-                                    pre-commit check
-                                              │
-        ◄────────  diagnostics  ◄─────────────┘
-        │         (structured JSON)
-        │
-  reads diagnostics
-  decides fix
-  ("widen box_3 by 40pt")
-        │
-        │   ◄══════  loop (until ok)  ═══════►  re-enters pipeline
-        │
-        ▼
-  build().ok = true  ──►  .pptx written, guaranteed correct
+            ┌─────────────────────────────────────────────┐
+            │                LLM AGENT                    │
+            │      (no vision — reads JSON, not pixels)   │
+            │                                             │
+            │   ① declare intent                          │
+            │      archetype + params + recipe + skin     │
+            │   ② read diagnostics + L0/L1/L2 ASCII       │
+            │   ③ decide fix → declare_direction()        │
+            └───────────────┬─────────────────▲───────────┘
+                            │                 │
+              declaration   ▼                 │  diagnostics (JSON)
+                            │                 │  + three-tier ASCII
+            ┌───────────────▼─────────────────┴───────────┐
+            │            ENGINE (deterministic)           │
+            │  resolve archetype → phase1 layout →        │
+            │  collision → composition → WCAG contrast →  │
+            │  PIL text metrics → freeze → roundtrip      │
+            │                                             │
+            │  CircuitBreaker guards the fix loop         │
+            └───────────────┬─────────────────▲───────────┘
+                            │                 │
+                  build()   ▼                 │  fix_slide() / rebuild()
+                            │                 │
+             .pptx written — ok:true = visually correct
 ```
 
-**It's not "AI generates, human fixes." It's "AI declares, engine checks, AI reads diagnostics, AI decides, loop."** No vision. No manual inspection. Just structured data flowing between agent and solver.
+**It is not "AI generates, human fixes." It is "AI declares, engine computes, AI reads, AI decides, loop."** Every LLM can read JSON. That is the whole trick.
 
-The engine speaks in compiler-style diagnostics:
+## Features
 
-```json
-{
-  "elem_id": "box_3",
-  "kind": "overflow_v",
-  "message": "text needs 52pt, box is 30pt — 22pt overflow",
-  "severity": "warning",
-  "options": [
-    "shrink font to 11pt",
-    "widen region to +40pt",
-    "split text to next slide"
-  ]
-}
-```
+- **Blind-LLM friendly by design.** The AI writes no coordinates and no raw `python-pptx` calls. It declares *what* it wants — `archetype`, `params`, `recipe`, `frame/rail/corner_mark` — and the engine solves *where*.
+- **Deterministic constraint solver.** Coordinates come from a reproducible pipeline, not from a sampled model. Same declaration → same layout, every time.
+- **Real font measurement.** `text_metrics.py` measures glyph advances with PIL/FreeType against Microsoft YaHei (CJK-capable), falling back gracefully. Overflow is caught *before* the file is written, with the exact point deficit.
+- **Structured diagnostics.** `{slide, phase, kind, severity, message, options}` per issue, deduplicated and batch-collapsed so the agent reads a clean feed, never a log flood.
+- **Three-tier ASCII feedback.** `L0` structure map (regions, skins, fills) · `L1` element map (one letter per element, `#` overlap, `!` overflow) · `L2` numeric text table (font size, line count, height, overflow pt).
+- **Guaranteed-fix loop.** The AI declares a fix direction (`b.declare_direction("split_slide")`) and re-runs. `CircuitBreaker` escalates: same direction twice → WARN, three times → BLOCK; three different mechanical tweaks → BLOCK; error-count stagnation → "stop micro-tuning."
+- **Real-time visualization (DSH plugin).** A `shell.overlay` panel previews each slide as it builds; per-element frames stream in real time. You can click an element, drag-box select, request a recolor, or flag a problem.
+- **Aesthetic judgment stays human.** Palettes, hex codes, and presets are human-curated assets. The engine only enforces the *objective* floor — WCAG AA contrast (≥ 4.5:1) and legibility — and never pretends to have taste.
+- **Design tokens + recipes as human assets.** `tokens.json` / `recipes.json` hold tiered values (spacing, radius, shadow, type scale, color) and named components (`card`, `kpi`, `quote`). The AI references *level names*, never raw numbers; humans own the values.
 
-Every LLM can read this. DeepSeek reads it like a compiler reading warnings — chooses the fix, re-runs. Claude reads it and optionally inspects the rendered slide with vision. Either way, the loop closes through text.
+## What's new in v0.6.0
 
-## Why Traditional AI → PPTX Breaks
-
-| What the AI writes | What actually happens | Why the AI can't know |
-|:--|:--|:--|
-| `add_picture(path, x, y, w, h)` | Image stretches to fill, aspect ratio destroyed | No `.pptx` renderer in the loop |
-| `font.color = RGB(0x22, 0x22, 0x44)` | Invisible on dark background | No WCAG contrast check |
-| `add_textbox(x, y, 200, 30, text)` | 3-line text in 30pt box — 2 lines fall out | No text-metrics pre-computation |
-| `fill = RGBColor(0x1A, 0x1A, 0x2E)` | Slide 3 uses a different blue than slide 1 | No cross-slide consistency check |
-
-Each failure requires a **human** to look at the file, spot the bug, and describe it to the AI. This works for one bug. It doesn't scale to 150+ per deck.
-
-## What ppt_reflex Guarantees
-
-| Guarantee | How |
+| Change | What it means |
 |:--|:--|
-| **Aspect ratio preserved** | PIL reads natural dimensions → `scale = min(w/natW, h/natH)` → invariant: `|final ratio − original| ≤ 0.001`. Violation = FATAL. |
-| **No invisible text** | WCAG AA contrast ratio ≥ 4.5:1. Dark fill → auto white text. `invisible_text` = BLOCK. |
-| **Box grows with content** | `_estimate_height()` computes text demand before allocating height. `max(preferred, text_needed)`. Shapes auto-grow. |
-| **Overflow detected BEFORE render** | `check_overflow_2d()` pre-estimates vertical + horizontal dimensions. Respects `height_is_locked`/`width_is_locked` flags. Freeze step runs after Aesthetics, before `_render_slide()`. |
-| **Design consistency** | 6 presets lock color, font, shape, image treatment. Pick once, enforced everywhere. |
-| **Structured diagnostics** | Every build returns `{ok, diagnostics: [{phase, kind, severity, elem_id, fix_options}]}`. Machine-readable. AI-actionable. |
+| **Theme layer removed** | No more semantic-template indirection. `template + style + overrides` is the whole story. |
+| **Parameterized primitives** | `grid_cards` accepts `columns` (1–4), `gap` (pt), and `density` (`compact`/`normal`/`airy`); the engine computes the grid. |
+| **Design tokens + recipes** | `tokens.json` + `recipes.json` + `get_token()` / `resolve_recipe()`; recipes `card`, `kpi`, `quote` pre-resolve token values. |
+| **Decoration skins** | `frame="top_bottom_band"`, `rail="left"|"right"`, `corner_mark="tl"|"tr"` — geometry is engine-solved, not hand-written. |
+| **PIL real font measurement** | Glyph-level FreeType advances replace em-based estimation. |
+| **ASCII layered feedback** | `L0`/`L1`/`L2` — structure, elements, and numeric text precision. |
+| **Render hook** | `set_render_frame_hook(fn)` fires per element before draw — the streaming-preview bridge. |
+| **DSH plugin bridge** | `_dsh_ppt_runner.py` — stdin JSON in, result JSON out, with streaming frames and ASCII attached. |
 
 ## Quick Start
 
-```python
-from ppt_reflex.builder import PPTBuilder
-
-b = PPTBuilder(template="academic", style="academic_rigorous")
-
-b.add_slide("Cover",
-    regions=[("hero", 80, 80, 800, 260, 1), ("meta", 120, 360, 720, 100, 2)],
-    elements=[
-        b.title("Transition from Aerogels to Hierarchical Monoliths"),
-        b.text("Kanamori et al. (2011) DOI: 10.1016/j.jcis.2011.02.027", style="注释"),
-    ])
-
-b.add_slide("Findings",
-    regions=[("hdr", 60, 30, 840, 40, 1), ("left", 60, 90, 450, 400, 2), ("right", 540, 90, 360, 200, 3)],
-    elements=[
-        b.text("Why Hierarchical Porosity?", style="小标题", region="hdr"),
-        b.bullet("PMSQ = CH₃SiO₁.₅ — dual amphiphilic surface", region="left"),
-        b.box("Key Finding: F127 controls both\nphase separation AND mesopore formation",
-              style="小标题", region="right", fill_color=(20, 30, 50)),
-        b.image("fig1_sem.png", region="right", layout_mode="hero_right", caption="Figure 1. SEM"),
-    ])
-
-result = b.build("output.pptx")
-# → {"ok": True, "summary": "128 issues (0 errors, 127 warnings)"}
-# AI reads result, sees warnings it can act on, re-enters if needed.
-```
-
-## Architecture
-
-```
-                            ┌─────────────────────────────────────────────┐
-                            │              AGENT / LLM                    │
-                            │   DeepSeek · Claude · GPT · Gemini · Qwen   │
-                            │                                             │
-                            │  ① browse catalogs (list_templates, etc.)   │
-                            │  ② declare intent (add_slide, archetype)    │
-                            │  ③ read diagnostics (structured JSON)       │
-                            │  ④ decide fix → fix_slide() → rebuild()     │
-                            └──────────────┬──────────────────────────────┘
-                                           │  PPTBuilder API
-                                           ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          PPTBuilder (builder.py)                         │
-│                                                                          │
-│  templates → lazy: list_templates() browse → get_template(id) one inst   │
-│  styles   → lazy: list_style_presets() browse → _apply_style(id) one    │
-│  layouts  → 12 archetypes: zone_map auto-routes element → region         │
-│  diff     → fix_slide() + rebuild([2]) — incremental, hash-cached        │
-└──────────────┬───────────────────────────────────────────────────────────┘
-               │
-        ┌──────┴──────┐
-        ▼              ▼
-┌──────────────┐ ┌──────────────────────────────────────────┐
-│  grid/ 引擎   │ │         DIAGNOSTIC PIPELINE (9 phases)   │
-├──────────────┤ ├──────────────────────────────────────────┤
-│ types.py     │ │ 0   intent → LayoutPlan                   │
-│ canvas.py    │ │ 0.5 region validation                     │
-│ plan.py      │ │ 1   info layer: stack/inline placement    │
-│ phase1.py    │ │ 2   decoration: arrow routing             │
-│ phase2.py    │ │ 2.5 global composition (balance/density)   │
-│ composition  │ │     AestheticsEngine (WCAG contrast)       │
-│ aesthetics   │ │ 3.0 color triangle (bg↔text↔fill)         │
-│ templates    │ │ ❄   freeze → check_overflow_2d             │
-│ archetypes   │ │ rt  roundtrip — reopen pptx, verify        │
-│ serializer   │ │ pre pre-commit gate                        │
-│ text_metrics │ │                                            │
-│ color_tri    │ │         LOOP ← diagnostics ←── Agent       │
-│ orchestrator │ │              Agent decides fix             │
-│ diff_log     │ │              fix_slide → rebuild           │
-└──────────────┘ └──────────────────────────────────────────┘
-
-   THREE-LAYER CANVAS                  HARNESS
-   ● Geometric  — coordinates          ● Per-element diagnostics with fix options
-   ● Semantic   — role tables          ● Color triangle (3-way contrast)
-   ● Commonsense— WCAG, overlap        ● 2D overflow pre-estimation
-                                       ● Roundtrip verification
-                                       ● Hash-cached incremental rebuild
-```
-
-## The Loop in Action
-
-```python
-b = PPTBuilder(template="academic", style="academic_rigorous")
-b.add_slide("Results", regions=[("main", 60, 60, 840, 420)],
-    elements=[
-        b.text("Comprehensive Analysis of SiOC Anode Performance", style="标题"),
-        b.text("300-character abstract that won't fit in this region...", style="正文"),
-        b.image("sem_fig.png", layout_mode="hero_top"),
-    ])
-
-result = b.build("draft.pptx")
-# → {"ok": True, "summary": "6 issues (0 errors, 6 warnings)"}
-
-# AI reads diagnostics:
-for d in result["diagnostics"]:
-    if d["kind"] == "overflow_v":
-        print(f"{d['elem_id']}: {d['message']}")
-        for fix in d.get("options", []):
-            print(f"  → {fix}")
-        # AI decides: "split the abstract to slide 2"
-```
-
-## LLM Compatibility
-
-**DeepSeek PPT** was built for DeepSeek first — but the diagnostic loop works with any LLM.
-
-| Model | Vision? | Works? | The Loop |
-|:--|:--|:--|:--|
-| **DeepSeek V4 / R2** | No | ✅ Best | Reads diagnostics → decides fix → re-enters. No vision needed. |
-| **Claude Fable 5 / Opus 5 / Sonnet 5** | Yes | ✅ Excellent | Vision adds bonus: sees the slide, correlates with diagnostics. |
-| **GPT-5 / ChatGPT 5.6** | Yes | ✅ Excellent | Structured output mode maps directly to diagnostic schema. |
-| **Gemini 3.1 Pro** | Yes | ✅ Excellent | Full compatibility. |
-| **Grok 3** | Yes | ✅ Works | Any model that writes Python and reads JSON. |
-| **Qwen 3 / Llama 4 / Mistral Large 3** | Varies | ✅ Works | Open-weight models — loop works entirely through text. |
-| **Ollama / local models** | Usually no | ✅ Works | Designed for this. No cloud, no vision, no problem. |
-
-## Template Intelligence — Semantic Contract, Not Just Colors
-
-A template preset is a **nine-dimension design contract**. When the AI picks `academic_rigorous`, everything locks in — colours, fonts, shapes, image treatment, caption format, density limits, and an explicit philosophy statement the AI reads before generating. The engine doesn't silently guess. The preset says what's allowed and what's forbidden, in plain language.
-
-| Layer | What it controls | `academic_rigorous` example |
-|:--|:--|:--|
-| **Colors** (8 tokens) | bg, surface, text-primary, text-secondary, accent, accent-soft, on-accent, warn | `#FBFAF7` cream bg, `#7A3B2E` brick accent |
-| **Fonts** (3 scales) | title, body, caption — per preset | 28pt bold title, 14pt body, 11pt caption |
-| **Shapes** | corner radius (card/pill/chip), shadow, border | 4pt corners, no shadow, 1pt border |
-| **Image philosophy** | *what* the image IS in this style | "Figure — must be numbered, captioned, cited in body text" |
-| **Image modes** (3–4) | per-mode w/h anchor ratio constraints | center_float ≤560pt×360pt, hero_top ≤800pt×280pt |
-| **Image treatment** | corner radius, border role, shadow role | 0pt corners, strong border, no shadow |
-| **Caption format** | font size, alignment, lines, prefix | 11pt left, 2 lines, `Figure N. ` prefix |
-| **Density** | max elements, max chars, dark bg allowed | 12 elements, 250 chars, dark bg = false |
-| **Guidelines** | natural-language rules, enforced by AestheticsEngine | "低饱和配色，模拟印刷品质感。禁止圆角卡片/阴影/渐变" |
-
-### The AI reads this before it generates
-
-Each preset carries an **image philosophy** and **layout rules** the engine feeds back:
-
-```
-academic_rigorous: "低饱和配色。禁止圆角大卡片、阴影、渐变。"
-tech_dark:        "暗场只点 1–2 处霓虹。禁止白字落亮霓虹填充块。"
-editorial_magazine: "超大标题 + 不对称网格 + 硬边构图。每页一个强视觉锚点。"
-creative_vibrant: "大圆角 + 重字重 + 贴纸硬阴影。单页 ≤2 彩色。"
-corporate_minimal: "一页一个强调色落点，其余全灰阶。禁止渐变、发光。"
-government_solemn: "标题居中、对称构图。顶部/底部细红线点缀。禁止霓虹。"
-```
-
-These aren't hints. They're enforced by the engine at three points (`try_place` → `commit` → `audit`). Violations come back as diagnostics. The engine never silently corrects — it reports, and the AI decides.
-
-### Selection guide (built in)
-
-```python
-# "What preset fits a thesis defense?"
-presets["selection_guide"]["by_occasion"]["paper_defense_seminar"]  # → "academic_rigorous"
-
-# "What fits an executive pitch?"
-presets["selection_guide"]["by_audience"]["executive_client"]  # → ["corporate_minimal", "government_solemn"]
-```
-
-### Query the preset mid-generation
-
-```python
-b.auto_layout_mode("fig1.png")    # → "center_float" (aspect 0.8–1.6)
-b.image_constraints("hero_top")   # → {"max_width_pt": 800, "max_height_pt": 280, ...}
-b.image_treatment()               # → {"corner_radius_pt": 0, "border_role": "border_strong", ...}
-b.caption_format()                # → {"prefix": "Figure N. ", "alignment": "left", ...}
-```
-
-## Six Presets at a Glance
-
-| Preset | Mood | Theme | Image Role | Dominant Trait |
-|:--|:--|:--|:--|:--|
-| `academic_rigorous` | Rigorous, restrained | light | Numbered figure with caption | Print-quality, low saturation |
-| `corporate_minimal` | Clean, trustworthy | light | Visual evidence | One accent, everything else grayscale |
-| `tech_dark` | Immersive, dramatic | dark | Illuminated window in void | 1–2 neon points, dark depth |
-| `editorial_magazine` | Bold, narrative | light | Main character (占最大面积) | Oversized titles, asymmetric grid |
-| `creative_vibrant` | Playful, friendly | light | Sticker with shadow | Big round corners, 贴纸 aesthetic |
-| `government_solemn` | Authoritative, formal | light | Documentary proof | Symmetric, ribbon/line accents |
-
-> **Templates are semantic contracts, not locked designs.** The 6 presets define *what* the deck should feel like — color mood, image role, density limits — not pixel-level layouts. They're intentionally narrow: academic/business contexts is where blind LLM generation has the hardest time going off-script. The modular design means you can add your own semantic preset without touching engine code. `ppt_reflex/grid/templates.py` — every `TemplateProfile` is a plain dataclass (colors, fonts, spacing, philosophy string). `style_presets.json` — same fields as JSON for config-driven overrides. PRs welcome.
-
-## Install
+### Install
 
 ```bash
-pip install git+https://github.com/lecutu/DeepSeek-PPT-skill.git
-```
-
-Or clone + editable install:
-
-```bash
-git clone https://github.com/lecutu/DeepSeek-PPT-skill.git
-cd DeepSeek-PPT-skill
+git clone <this-repo> && cd <repo>
 pip install -e .
 ```
 
-Python 3.10+. Two deps: `python-pptx`, `Pillow`.
+Python 3.10+. Two runtime dependencies: `python-pptx` and `Pillow`.
 
-## Project Layout
-
-```
-ppt_reflex/
-├── builder.py            # Sole entry point — AI writes to this
-├── style_presets.json    # 6 presets × image_layout (v2)
-├── image_prompter.py     # AI image prompt generator
-├── roundtrip_check.py    # Reopen PPTX, verify text fits (2D overflow)
-├── color_triangulator.py # bg↔text↔fill 3-way contrast triangle
-├── diff_log.py           # Snapshot-based mutation trace (incremental build)
-├── deck_plan.py          # Full-deck layout orchestration
-├── deck_planner.py       # Deck-level content allocation
-├── grid/
-│   ├── types.py          # 30+ types: SemanticRole, ContentType...
-│   ├── plan.py           # LayoutPlan, Region, PageElement (lock flags)
-│   ├── canvas.py         # Three-layer canvas
-│   ├── phase1.py         # Info layer: stack/inline placement
-│   ├── phase2.py         # Decoration: arrow routing
-│   ├── composition.py    # Global whitespace/balance/density
-│   ├── aesthetics.py     # 10+ WCAG rules engine
-│   ├── templates.py      # 6 TemplateProfiles + override()
-│   ├── serializer.py     # Grid → python-pptx rendering
-│   ├── text_metrics.py   # Pre-render text estimation + check_overflow_2d()
-│   ├── orchestrator.py   # Diagnostic repair loop
-│   └── tests/            # 46 tests
-├── gen_cs_wtf.py         # 14-slide CS quirks deck (demo)
-├── gen_crash_log.py      # 12-slide programmer pain deck (demo)
-├── gen_demo_ppt.py       # General demo generator
-├── .claude/skills/ppt-maker/
-│   └── SKILL.md
-└── .claude/
-    └── CLAUDE.md
-```
-
-## Using with DeepSeek
-
-DeepSeek models are text-only — they generate python-pptx code and hope it renders correctly. Two failure modes dominate:
-
-1. **Text overflow.** A `python-pptx` textbox with fixed dimensions silently clips text that doesn't fit. The AI declares a 200×30pt box for a 3-line paragraph; PowerPoint renders only the first line.
-2. **Invisible text.** Dark gray text (`#222244`) on a dark background (`#1A1A2E`) has 1.5:1 contrast. Legible and passes no `python-pptx` error, but invisible to a human reader. The AI can't see it.
-
-PPT Reflex catches both before the file is written. The DeepSeek agent writes declarations instead of raw python-pptx calls, the engine computes layout and runs a pre-render diagnostic pass, and structured diagnostics come back as JSON the agent can read and act on.
-
-### Setup
-
-```bash
-pip install git+https://github.com/lecutu/DeepSeek-PPT.git
-```
-
-### Workflow
-
-```
-DeepSeek agent writes:
-    b = PPTBuilder(template="minimal", style="tech_dark")
-    b.add_slide("Introduction", archetype="content", elements=[...])
-    result = b.build("draft.pptx")
-
-Engine returns:
-    {
-      "ok": false,
-      "diagnostics": [
-        {"elem_id": "box_3", "phase": "freeze", "kind": "overflow_v",
-         "severity": "error", "message": "text needs 52pt, box is 30pt",
-         "options": ["shrink font to 11pt", "widen box by 40pt"]}
-      ]
-    }
-
-DeepSeek agent reads diagnostics, picks a fix, calls fix_slide(), rebuilds.
-```
-
-No vision. No manual inspection. The agent reads JSON, decides, and loops until `ok: true`.
-
-### Minimal working script
+### Minimal deck
 
 ```python
 from ppt_reflex.builder import PPTBuilder
 
-b = PPTBuilder(template="minimal", style="tech_dark")
-ACCENT = (34, 211, 238)
-DARK = (16, 26, 45)
+b = PPTBuilder(template="business", style="corporate_minimal")
 
 b.add_slide("Why This Exists",
     archetype="content",
     elements=[
         b.title("python-pptx Is Blind"),
-        b.bullet("DeepSeek generates python-pptx code it cannot verify"),
         b.bullet("Text overflow and invisible text are silent failures"),
-        b.bullet("PPT Reflex adds a pre-render diagnostic pass"),
-        b.box("Every LLM can read JSON.\nNo vision required.", style="Body",
-              fill_color=DARK),
+        b.bullet("ppt-reflex adds a pre-render diagnostic pass"),
+        b.box("Every LLM can read JSON.\nNo vision required.",
+              recipe="card", fill_color=(15, 23, 42)),
     ],
 )
 
 result = b.build("output.pptx")
 print(result["summary"])
-# → "0 errors"
+# → "3 issues (0 errors, 3 warnings)"
 ```
 
-### Layout archetypes
+### Runner command (DSH stdin-JSON bridge)
 
-Instead of hand-calculating pixel coordinates, use one of 12 archetypes:
-
-```python
-b.add_slide("Comparison", archetype="comparison",
-    elements=[
-        b.title("Before vs After"),
-        b.box("python-pptx alone:\n40% overflow rate", style="Body"),
-        b.box("With PPT Reflex:\n0 errors guaranteed", style="Body"),
-    ])
+```bash
+python _dsh_ppt_runner.py < deck_request.json
 ```
 
-Archetypes: `title_cover`, `content`, `two_column`, `comparison`, `data_showcase`, `grid_cards`, `image_hero`, `conclusion`, `section`, `quote`, `timeline`, `blank`.
+`deck_request.json`:
 
-Each archetype defines preset regions and auto-routes elements — the title goes to the header, bullet points to the main column, boxes to the sidebar. Explicit `region=` overrides when needed.
+```json
+{
+  "action": "build",
+  "template": "business",
+  "style": "corporate_minimal",
+  "output": "output.pptx",
+  "slides": [
+    {
+      "title": "Why This Exists",
+      "archetype": "content",
+      "elements": [
+        {"id": "t1", "type": "title", "text": "python-pptx Is Blind"},
+        {"id": "b1", "type": "box", "text": "No vision required.",
+         "recipe": "card", "fill_color": [15, 23, 42]}
+      ]
+    }
+  ]
+}
+```
 
-## Design Philosophy
+### Result example
 
-> **The engine computes truth and returns options. It never silently mutates the AI's declarations.**
+```json
+{
+  "path": "output.pptx",
+  "ok": true,
+  "summary": "3 issues (0 errors, 3 warnings)",
+  "diagnostics": [
+    {
+      "slide": 0, "phase": "freeze", "kind": "overflow_vertical",
+      "severity": "warning", "elem_id": "e_2",
+      "message": "text needs 44pt, box is 38pt — 6pt overflow",
+      "options": ["shrink font", "widen box", "shorten text"]
+    }
+  ],
+  "ascii": [ { "L0": "...structure map...", "L1": "...element map...", "L2": [ { "elem_id": "e_2", "font_size": 14, "overflow_pt": 6 } ] } ],
+  "survey": { "topic": "…", "template": "business", "questions": "…" }
+}
+```
 
-This is not a "generate and pray" system. It's a declarative constraint solver with a text-based diagnostics channel. AI declares what it wants. Engine computes what's possible. Diagnostics flow back as structured data. AI decides. Loop closes. Every LLM — vision or no vision — can participate.
+`ok: true` means zero *errors* and zero roundtrip failures — the file is visually correct. Warnings are advisory; the agent decides which to act on.
 
-If `build().ok` is `true`, the file is visually correct. Guaranteed. No `.pptx` renderer required.
+## DSH Plugin Workflow
 
-## Known Limitations — Honest Disclaimer
+The DSH plugin is a **dynamic (session-level) Cordis plugin**. It is activated for the current session and must be re-activated after a process restart; persisting it into the host composition is on the roadmap.
 
-**This engine has no visual taste. Output can still be ugly.**
+The conversation flow is a closed loop:
 
-The engine guarantees *technical* correctness: no overflow, no invisible text, no broken contrast, no layout collisions. It does **not** guarantee *aesthetic* quality. A constraint solver avoids mistakes; it cannot compose a beautiful slide. What it produces is safe, clean, and boring — and sometimes actively ugly when the declarative prompt is thin.
+```
+user says what they need
+        │
+        ▼
+agent questionnaire (8 items, click-select)
+   topic / audience / template / style /
+   content source / images / slide count / density
+        │
+        ▼
+generate deck (archetypes + params + recipes + skins)
+        │
+        ▼
+build  ──►  panel preview (shell.overlay), frames stream in real time
+        │
+        ▼
+feedback loop
+   click element · drag-box select · recolor request · problem flag
+        │
+        ▼
+fix_slide() / rebuild()  ──►  preview again
+```
 
-Two consequences, stated plainly:
+**Panel preview** renders at the same 960×540 coordinates the `.pptx` will use — same deterministic pipeline, two render targets. Per-element frames are pushed in real time through `set_render_frame_hook`, so you watch elements land one by one.
 
-1. **The AI cannot see the result, and neither can the engine.** Every diagnostic is geometric, not perceptual. Nothing in the pipeline judges whether a slide "looks good" — only whether it obeys rules. Taste is not a rule; it's a cultivated judgment no hardcoded check can encode.
-2. **Quality scales with prompt quality.** A deck built from `b.title()` + `b.bullet()` calls is functional and forgettable. A deck built from a detailed design brief — explicit color values, font sizes, per-page layout types (title_hero / title_3col / title_big_number / ...), whitespace ≥ 35%, shape semantics, 3–5 words per speaker note — is a different artifact entirely. **The more specific the prompt, the better the output. The engine rewards exhaustive prompts and punishes vague ones.**
+**Workflow file bridge** (the plugin and the agent exchange state through JSON files):
 
-If the output looks bad, the fix is almost never more engine code. It is a better brief.
+| File | Purpose |
+|:--|:--|
+| `_deck_auto.json` | Deck plan (slides, archetypes, elements) |
+| `_frames_auto.jsonl` | Build frames — the panel polls this for its preview |
+| `_feedback_auto.json` | User problem feedback from the panel |
+| `_selection_auto.json` | Element selection (click / drag-box) |
+| `_palette_auto.json` | Recolor request (palette / hex change) |
+
+## API Overview
+
+| API | Signature | Purpose |
+|:--|:--|:--|
+| `PPTBuilder` | `PPTBuilder(template, style, overrides, page_w=960, page_h=540)` | Sole AI entry point; lazy template + style load |
+| `add_slide` | `add_slide(title, *, archetype, params, regions, elements, arrows, frame, rail, corner_mark)` | Declare one slide; archetype auto-routes elements into zones |
+| `title / subtitle / text / bullet / footer` | `(text, *, style, region)` | Text primitives |
+| `box` | `(text, *, recipe, fill_color, shape_id, …)` | Card component; `recipe` = `card`/`kpi`/`quote` |
+| `shape` | `(shape_id, *, fill_color, pw, ph, text, …)` | 20 shapes; shape-inline text auto-centers |
+| `image` | `(path, *, fit_mode, layout_mode, caption)` | Contain-fit; `layout_mode` or `auto_layout_mode()` |
+| `table` | `(headers, rows, *, region)` | Auto-sized table, accent header row |
+| `divider / arrow` | — | Decoration, always safe |
+| `build / build_stream` | `(path)` | Full build (one-shot) or per-slide streaming generator |
+| `fix_slide / rebuild` | `(idx, …)` / `(changed_slides, path)` | In-place edit + hash-cached incremental rebuild |
+| `verify` | `(path)` | Reopen `.pptx`, pure-geometry structural check (no vision) |
+| `declare_direction` | `(direction)` | Declare fix strategy to the CircuitBreaker |
+| `set_render_frame_hook` | `(fn)` | Per-element callback for streaming previews |
+| `list_templates / list_style_presets / list_archetypes` | `()` | Lightweight catalogs for the agent to browse |
+| `get_token / resolve_recipe` | `(category, level)` / `(name)` | Design-token and recipe resolution |
+
+**12 layout archetypes:** `title_cover` · `content` · `two_column` · `comparison` · `data_showcase` · `grid_cards` · `image_hero` · `conclusion` · `section` · `quote` · `timeline` · `blank`.
+
+**6 templates:** `academic` · `business` · `minimal` · `data_report` · `teaching` · `product`.
+**6 style presets:** `academic_rigorous` · `corporate_minimal` · `tech_dark` · `editorial_magazine` · `creative_vibrant` · `government_solemn`.
+
+## Escape Hatches
+
+The engine is a floor, not a ceiling. Three layers let the agent take back control when a declaration is not expressive enough:
+
+1. **Hand-written regions.** Skip the archetype entirely and pass explicit `regions=[("name", x, y, w, h, z), …]`. You get the diagnostics and the fix loop even on fully manual layouts.
+2. **Element parameters.** Every primitive accepts explicit overrides — `pw`/`ph`, `fill_color`, `corner_radius`, `align_h`, `font_size`. Declarative defaults, imperative escape.
+3. **Agent takeover code.** When neither is enough, drop to raw `python-pptx` (or the `officecli` skill) for that one slide. The engine's value is the *loop*, not a lock-in.
+
+## Roadmap
+
+- **Persist the DSH plugin** into the host composition (today it is session-level dynamic).
+- **More recipes and tokens** — grow the human-curated asset layer (`kpi` variants, data-table recipes).
+- **More parameterized primitives** — bring `columns`/`gap`/`density`-style parameters to more archetypes.
+- **Reference-PPTX layout extraction** — `layout_extractor.py` already infers zones from an existing deck; wire it into `register_archetype()`.
+- **Full ASCII → diagnostic cross-linking** — make every `#`/`!` in the L1 map clickable to its JSON diagnostic.
 
 ---
 
-**DeepSeek PPT** is MIT Licensed. Built for AI agents. Blind-proof by design.
+**ppt-reflex** is MIT licensed. Built for AI agents. Blind-proof by design — `ok: true` means the file is correct, and no one had to see it.

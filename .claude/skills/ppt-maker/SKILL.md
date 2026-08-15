@@ -1,555 +1,381 @@
-# ppt-maker — PPT Creation Entry Point
+# ppt-maker — PPT Creation Operating Manual (ppt-reflex v0.6.0)
 
-**STOP. Do NOT read ppt_reflex/ source code. Do NOT import from grid/. Do NOT explore the repo.**
+**This file is the single source of truth for the ppt-reflex v0.6.0 API.** It is written for a fresh agent with no memory and no source-code access. Do **not** read `ppt_reflex/` or `grid/` source (the only exception is Escape Hatch L3). If something is not described here, it does not exist.
 
-Everything you need is in this doc. If something isn't here, it doesn't exist. Use the zero-error skeleton below — it builds with 0 errors on first try.
+---
 
-## Install
+## 1. What this system is
 
-```bash
-pip install git+https://github.com/lecutu/DeepSeek-PPT.git
-```
+Two cooperating surfaces:
 
-Or clone + editable install:
+| Surface | What it does | Agent's role |
+|:--|:--|:--|
+| **Engine** `ppt-reflex` v0.6.0 | AI declares *layout intent* (`archetype` / `params` / `recipe` / `deco`); a constraint-solver computes coordinates; emits structured diagnostics + ASCII feedback; supports a repair loop. No vision model needed. | Declare intent, read diagnostics, iterate. |
+| **DSH plugin** (dynamic Cordis plugin `ppteg-1`, panel **`▸ PPT 预览`**) | User states a need in conversation → agent generates a deck → build frames are written to a file → panel previews page by page → user clicks / box-selects / changes colors / asks questions as feedback. | Run the file bridge, react to feedback. |
 
-```bash
-git clone https://github.com/lecutu/DeepSeek-PPT.git
-pip install -e DeepSeek-PPT
-```
+The agent never types raw coordinates. It declares **what** it wants; the solver returns **where** things go.
 
-## Rules
+---
 
-```
-Every launch MUST ask:
-  1. What to make? (topic / occasion / template)
-  2. What content? (text / data / images / number of slides)
-  3. Image source? (user files / AI generation / none)
+## 2. Golden rules (read first)
 
-NEVER decide image sources for the user. NEVER skip the questionnaire.
-```
+1. Declare layout intent, never hand-write coordinates (except the escape hatches in §13).
+2. Never invent color values — relay preset names or the user's hex verbatim.
+3. This file is the only API reference; do not read engine source (except Escape Hatch L3).
+4. Ask every missing questionnaire item exactly once; never guess.
 
-## Zero-Error Recipe — USE THIS FIRST, every time
+---
 
-**The skeleton below builds with 0 errors. Start here, then add content.**
+## 3. Questionnaire (8 items)
+
+Before generating, collect all 8 items. Ask any **missing** item **once** via structured multi-select; do not re-ask answered items; never guess; never ask twice.
+
+| # | Item | Options / format |
+|:--|:--|:--|
+| 1 | Topic | free text |
+| 2 | Audience | executives · customers · colleagues · teachers · public |
+| 3 | Occasion | work report · proposal · training · launch · defense |
+| 4 | Page count | default **8** |
+| 5 | Style | 6 presets (carry mood) — see §4 |
+| 6 | Color scheme | a preset, **or** primary + background hex. **Relay only, do not create.** |
+| 7 | Images | path list, in order (may be empty) |
+| 8 | Density | compact · standard · airy |
+
+---
+
+## 4. Builder API — entry
 
 ```python
-from ppt_reflex.builder import PPTBuilder
-
-b = PPTBuilder(template="minimal", style="tech_dark")
-ACCENT = (34, 211, 238)
-WARN = (251, 113, 133)
-DARK = (16, 26, 45)
-
-b.add_slide("Title",
-    regions=[
-        ("header", 60, 30, 840, 60, 1),        # ≥60pt tall for titles
-        ("main", 60, 110, 520, 380, 2),         # big enough for bullets
-        ("sidebar", 600, 110, 300, 200, 3),
-    ],
-    elements=[
-        b.title("Your Slide Title", region="header"),                   # SAFE
-        b.text("A subtitle goes here", style="Caption", region="main"),  # SAFE
-        b.bullet("Point one", region="main"),                            # SAFE
-        b.bullet("Point two", region="main"),                            # SAFE
-        b.box("Key takeaway in a card", style="Body", region="sidebar",
-              fill_color=DARK, shape_id="rounded_rectangle"),            # SAFE — auto-height
-        b.shape("hexagon", region="sidebar", fill_color=ACCENT, pw=60, ph=45),  # SAFE
-    ],
-)
-
-r = b.build("output.pptx")
-print(r["summary"])
-errs = [d for d in r["diagnostics"] if d["severity"] == "error"]
-print(f"Errors: {len(errs)}")  # Should be 0
+from ppt_reflex.builder import PPTBuilder, load_style_presets, list_archetypes
 ```
 
-### Likely errors — high risk, check before use
+### PPTBuilder
 
-| ⚠️ RISK | Why | Error |
-|:--|:--|:--|
-| `b.text("...", style="Heading")` in short header | 28pt bold → needs ~49pt height, header <50pt → overflow after inset | `overflow_vertical` |
-| `b.text("...", style="Subheading")` in small region | 20pt font → box too small after inset | `overflow_vertical` |
-| `b.text("...", style="Emphasis")` | bold 16pt → needs > allocated in tight regions | `overflow_vertical` |
-| `b.text("...", style="Body")` in fixed-height region | Body is 18pt, box auto-grows but may still clip | `overflow_vertical` roundtrip error |
-| `b.image(..., caption="...")` | Caption text triggers overflow check | `overflow_vertical` |
-| `template="product"` + `style="creative_vibrant"` | creative_vibrant overrides bg to light → white text invisible | `tri_bg_fill` contrast BLOCK |
-| Any light-bg template + any dark-bg style | Theme mismatch → white text on white | `invisible_text` BLOCK |
+```python
+PPTBuilder(
+    template="academic|business|minimal|data_report|teaching|product",
+    style="academic_rigorous|tech_dark|corporate_minimal|editorial_magazine|creative_vibrant|government_solemn" | None,
+    overrides={"bg_hex": "#...", "accent_hex": "#..."},
+    page_w=960,
+    page_h=540,
+)
+```
 
-### Safe patterns — always zero errors
+> **The `theme` parameter has been removed.** Use `template` + `style`.
 
-| ✅ ALWAYS SAFE | Why |
+**Templates:**
+
+| id | vibe |
 |:--|:--|
-| `template="product"` + `style="tech_dark"` | Genuinely dark bg, neon text works |
-| `template="minimal"` + `style="tech_dark"` | Also safe — tech_dark respects dark intent |
-| `b.title("...", region="header")` | Has built-in ph=40 margin — won't overflow |
-| `b.subtitle("...", region="header")` | 18pt, ph=30 — safe in header regions |
-| `b.text("...", style="Caption")` | 10pt font fits in ANY region |
-| `b.bullet("...")` | 13pt, no fixed box — auto-flow, never overflows |
-| `b.box("...", fill_color=DARK, style="Body")` | Box auto-expands height — no overflow |
-| `b.shape(...)` | Pure graphics, no text → no overflow possible |
-| `b.shape(..., text=..., font_size=...)` | Shape-inline text is centered H+V, fits the shape → no overflow |
-| `b.image(..., layout_mode="hero_top")` | No caption = no text overflow |
-| `b.divider(...)` | Always safe, no text |
-| `b.arrow(...)` | Always safe, decoration only |
+| `academic` | rigorous, high info density |
+| `business` | professional, conclusion-first |
+| `minimal` | breathing room, one message per slide |
+| `data_report` | grid feel, data-dense |
+| `teaching` | friendly, well-structured |
+| `product` | premium, dark, centered |
 
-### Key rules
+**Styles (6 presets, carry mood):**
 
-- **header region ≥ 60pt tall** for `b.title()`. 50pt is too short.
-- **For text content: prefer `b.box()` over `b.text(Body)`.** Box auto-expands; Body text in fixed regions may clip.
-- **For headings: use `b.title()`.** It's the Heading style with built-in margin; `b.text(style="Heading")` needs a ≥50pt region.
-- **Images: no captions.** `caption=""` or omit.
-- **Dark themes: `product` template ONLY with `tech_dark` style.** Nothing else.
-- **First build with skeleton. Iterate from 0 errors.** Don't start from scratch.
+`academic_rigorous` | `tech_dark` | `corporate_minimal` | `editorial_magazine` | `creative_vibrant` | `government_solemn`
 
----
+**Helpers:**
 
-## 美学宪法 — Agent 每次生成前必须过 ⭐
+- `load_style_presets()` — list style presets and their fields.
+- `list_archetypes()` — list the available primitives (§5).
 
-> 来源：`D:\文献搜索员\ppt-design-research.md` — Anthropic/医学/神经科学实测 + guizang Swiss 逆向。
-> 引擎已把下列规则编译成 `anti_ai_rules` 检查（见 themes.json）。这里管 Agent 的手。
-
-**规则体系（语义模板，非死配置）：**
-- 每个主题的 `anti_ai_rules` 是"AI 写语义"的设计契约，`get_theme_rules(theme_id)` 按需暴露
-- **全局通用规则**（4 主题共享，不是冗余）：`no_em_dash_in_copy`（禁 em-dash）/ `no_section_number_eyebrow`（禁 01/02 序号）/ `no_version_label_in_hero`（禁版本号）/ `no_same_layout_all_slides`（跨页布局不雷同）
-- **形状纪律**（3 主题共享）：`shape_types_max_2`（≤2 种形状）/ `shape_style_no_mix`（圆润尖锐不混）/ `shape_size_anchor_rule`（大形状做锚点）/ `shape_family_consistency`（几何家族统一）
-- **规则注册表**：`grid/composition.py` 的 `ANTI_AI_RULE_REGISTRY` 登记每条规则对应的检查器，未登记的加载时显式报告（`b.unimplemented_anti_ai_rules` 恒空 = 全部生效）
-- **矛盾已消解**：`cards_must_have_consistent_size` 存在时抑制 `vary_card_sizes`；`no_rounded_cards` 为统一规范名
-
-### ① 配色铁律
-
-1. **禁自造 RGB。** 配色只从 theme 自带 `palettes` 里选（见 PPTBuilder Init），或手动传 `palette="deepsea_brick"`。
-2. **单 accent。** 1 surface + 1 accent + 1 text = 3 色上限。accent 只做装饰/KPI/连线。
-3. **60-30-10。** accent 面积 ≤ 画面的 10-15%。金/橙色超 20% = 暴发户，不是奢华。
-4. **深底禁纯黑** `(0,0,0)`、**浅底禁纯白** `(255,255,255)`。用 `#0B0D10`~`#1C1C1C` 或 `#F5F0EB`~`#FAFAF8`。
-5. **卡面用 surface 色**，不是 accent 色。卡是信息容器，不是装饰。
-
-### ② 布局铁律
-
-1. **禁止所有页同一布局。** 引擎检查 `no_same_layout_all_slides`。10 种布局轮换：
-   - `title_hero` 封面大字 / `title_left_right` 左文右图 / `title_right_left` 左图右文
-   - `title_3col` 三列卡 / `title_2x2` 四象限 / `title_banner` 顶部全宽
-   - `title_list_deco` 左列表右装饰 / `title_big_number` 大字KPI / `title_code` 代码+说明 / `title_closing` 全幅大字
-2. **留白 ≥ 35%。** 内容占 60-65%，装饰 ≤ 15%。
-3. **构图遵循视觉重量：** 左上→右下阅读路径。重要信息放左上象限。
-
-### ③ 形状铁律
-
-1. **每页 ≤2 种形状。** 引擎检查 `shape_types_max_2`。形状是图示载体，不是填空装饰。
-2. **每页 1-2 个大形状做主角**（占画面 8-15%）。引擎检查 `shape_size_anchor_rule`。
-3. **禁碎形状堆砌。** 3+ 个 <5% 的小形状 = 噪音。要么做大，要么删掉。
-4. **形状必须语义化** — 和内容有关，不是占版面：
-   - 架构/层级 → 嵌套结构 / 三层矩形
-   - 流程 → 箭头 / 时间轴
-   - 熔断/保护 → 盾形 / 闸门
-   - 问题/缺口 → 破碎 / 缺口形态
-5. **家族统一，圆润/尖锐不混搭。** 全 deck 一个几何家族：
-   - rounded 系（oval/rounded_rectangle/pie/donut/sun/plaque）与 angular 系（hexagon/diamond/triangle/chevron/star/...）**同页不混用** → 引擎检查 `shape_style_no_mix`；
-   - 全 deck 几何家族一致性 → 引擎检查 `shape_family_consistency`。
-6. **形状内文字直接承载。** 数字/步骤序号/品牌标用 `b.shape(..., text=..., font_size=...)` 放进形状里，不叠文本框。生成后可 `b.verify()` 双向检测居中（见下）。
-7. **颜色处理：** accent 纯色填充做锚点；surface 色做衬底；禁高饱和×高饱和同页。
-
-### ④ 文字铁律
-
-1. **禁 em-dash（—）**。用逗号/句号/冒号。引擎检查 `no_em_dash_in_copy`。
-2. **禁 "01 / 02" 章节序号 eyebrow**。引擎检查 `no_section_number_eyebrow`。
-3. **禁版本号**（v0.2.0 / version 2）。引擎检查 `no_version_label_in_hero`。
-4. **标题越大越细，正文越小越粗**（Swiss 字重阶梯）。大标题用 Light 200-300，正文用 Regular 400-500。
-
----
-
-## PPTBuilder API Reference
-
-### Init
+### add_slide
 
 ```python
-from ppt_reflex.builder import PPTBuilder
-b = PPTBuilder(template="minimal", style="tech_dark")
-
-# 自定义配色 — 模板外任意色
-b = PPTBuilder(template="minimal", style="tech_dark",
-               overrides={"bg_hex": "000000", "accent_hex": "FF6B35",
-                          "title_font": "Arial", "body_size": 24})
-# overrides 在 style 之后生效，可覆盖 TemplateProfile 任意字段
-```
-
-### Theme palette — 一行定配色（禁自造 RGB）
-
-`theme="..."` 的每个 theme 内置 2-4 套研究验证的 palette。想换配色，**传 palette 名字而不是手写颜色**：
-
-```python
-b = PPTBuilder(theme="tech_product", palette="deepsea_brick")   # 深海蓝×赭橙
-b = PPTBuilder(theme="tech_product", palette="klein_blue")       # 克莱因蓝
-b = PPTBuilder(theme="tech_product", palette="safety_orange")    # 安全橙
-b = PPTBuilder(theme="tech_product", palette="lemon_green")      # 柠檬绿
-
-b = PPTBuilder(theme="academic_research", palette="anthropic_ivory")  # 暖米白×赭橙
-b = PPTBuilder(theme="academic_research", palette="med_blue_white")   # 医学蓝白
-
-b = PPTBuilder(theme="corporate_consulting", palette="consult_navy_brick")
-b = PPTBuilder(theme="minimalist_creative", palette="lemon_yellow")
-```
-
-可用 palette 列表（每 theme 的 `palettes` 字段）：`deepsea_brick` / `klein_blue` / `safety_orange` / `lemon_green` / `anthropic_ivory` / `med_blue_white` / `consult_navy_brick` / `consult_blue` / `lemon_yellow` / `klein_blue_light`。
-
-### Templates
-
-| id | bg | accent | vibe |
-|:--|:--|:--|:--|
-| `academic` | white | navy+brick | rigorous, high info density |
-| `business` | white | blue+orange | professional, conclusion-first |
-| `minimal` | white | dark gray+blue | breathing room, one message/slide |
-| `data_report` | white | blue+orange | grid feel, data-dense |
-| `teaching` | warm white | vibrant blue+orange | friendly, well-structured |
-| `product` | dark gray | indigo+violet | premium, dark bg, centered |
-
-### Style presets (style_presets.json)
-
-`academic_rigorous` | `corporate_minimal` | `tech_dark` | `editorial_magazine` | `creative_vibrant` | `government_solemn`
-
-### add_slide — full signature
-
-```python
-b.add_slide("Slide title",
-    regions=[
-        ("header", 60, 30, 840, 60, 1),           # (name, x, y, w, h, z_order)
-        ("main", 60, 110, 520, 380, 2),            # lower z_order = behind
-        ("sidebar", 600, 110, 300, 200, 3),
-    ],
-    elements=[
-        b.title("Title", region="header"),          # 28pt bold, centered, ph=40
-        b.bullet("Point", region="main"),           # 13pt, auto-flow
-        b.box("Card", style="Body", region="sidebar",
-              fill_color=(16,26,45)),               # auto-height
-    ],
-    arrows=[
-        b.arrow(from_elem, to_elem, "label", "below",
-                color=(34,211,238)),                # from/to accept _Spec objects
-    ],
+add_slide(
+    title="",
+    *,
+    archetype=None,
+    params=None,
+    regions=None,
+    elements=None,
+    arrows=None,
+    frame="",
+    rail="",
+    corner_mark="",
 )
 ```
 
-### Element API — every method
+---
 
-```python
-# TEXT (safe: title/subtitle/Caption preferred)
-b.title("Title text", region="header")                  # ⭐ Use this for headings — style=Heading with ph=40 margin
-b.subtitle("Subtitle text", region="header")            # 18pt, gray, ph=30
-b.text("Body text", style="Caption", region="main")     # ⭐ Caption (10pt) fits any region. Other styles OK if region is tall enough.
-# b.text(style="Heading/Subheading/Emphasis/Body") → risky in short regions, see Likely errors table above
+## 5. Primitives (archetypes), params, deco
 
-# LISTS — always safe
-b.bullet("List item text", region="main")               # 13pt, auto-flow — ALWAYS SAFE
+### 12 primitives
 
-# FOOTER
-b.footer("Copyright 2024", region="footer")             # dimmed, small — safe anywhere
+`title_cover` · `content` · `two_column` · `comparison` · `data_showcase` · `grid_cards` · `image_hero` · `conclusion` · `section` · `quote` · `timeline` · `blank`
 
-# CARDS — always safe (auto-height)
-b.box("Card content here\n\nMultiple paragraphs OK",
-      style="Body", region="card",                      # style: Body is standard — box auto-expands height
-      fill_color=(16,26,45),                             # dark fill → white text automatic
-      shape_id="rounded_rectangle",                      # 20 shapes available (see below)
-      ph=None, align_h="left", allow_shrink=False)       # ph=override height; align_h=left|center|right
+`blank` = **fully manual region** — you declare everything yourself.
 
-# SHAPES — 纯图形 或 承载文字（⭐ 形状内文字自动水平+垂直居中）
-b.shape("hexagon", region="center",                     # 20 shape IDs (see below)
-        fill_color=(34,211,238), pw=100, ph=60,         # pw/ph REQUIRED
-        text="PPT\nReflex", font_size=40,               # ⭐ 数字/步骤/品牌标直接放形状里
-        font_color=None, align_h="center")              # 无需额外文本框
-# text 非空 + 无 fill → 透明底形状只做文字容器（文字可自由摆放在形状上）
+### params
 
-# IMAGES — safe without caption
-b.image("path/to/img.jpg", region="hero",
-        layout_mode="hero_top",                          # 7 modes or b.auto_layout_mode(path)
-        fit_mode="fit", allow_upscale=False,             # fit=contain; fill=crop
-        pw=400, ph=300, caption="")                      # ⭐ Empty caption = safe. NEVER add caption text.
+Only `grid_cards` takes `params`:
 
-# TABLES — auto-sizes columns to region width
-b.table(headers=["Col A", "Col B", "Col C"],
-        rows=[["v1", "v2", "v3"], ["v4", "v5", "v6"]],
-        region="main")                                   # Header row: accent bg, white bold text
-# Each row MUST have len(headers) cells. Missing cells render as empty.
-
-# DECORATION — always safe
-b.divider(region="main", color=(34,211,238), width_pt=2.0)
-b.arrow(elem_a, elem_b, "label text", "below",          # elem_a/elem_b = _Spec objects from b.box/b.shape
-        color=(34,211,238), text_font_size=9)
-```
-
-### Shape IDs (for shape_id and b.shape)
-
-`rounded_rectangle` `rectangle` `oval` `parallelogram` `diamond` `chevron`
-`pentagon` `hexagon` `up_arrow` `down_arrow` `left_arrow` `right_arrow`
-`star` `triangle` `home` `cross` `pie` `wave` `donut` `plaque` `sun`
-
-### Image layout modes
-
-`hero_top` `hero_right` `hero_left` `center_float` `small_inline` `grid_2x2` `grid_1x3`
-
-Or auto-infer: `b.auto_layout_mode("img.jpg")` — picks mode from aspect ratio:
-
-| Aspect ratio | Auto mode | Behavior |
-|:--|:--|:--|
-| >1.6 (wide / panorama) | `hero_top` | full-width banner, contain-fit |
-| <0.8 (tall / portrait) | `hero_right` | right-side column, contain-fit |
-| 0.8–1.6 (square / screenshot) | `center_float` | centered, contain-fit, NEVER cropped |
-
-**Screenshots, irregular crops, phone captures — just pass the file.** `fit_mode="fit"` is default: image fully visible, aspect ratio preserved, nothing cropped.
-
-### Verify — 形状双向检测（无需打开 PPTX）
-
-`b.verify("output.pptx")` 重开文件做纯几何检查，返回每页指标，AI 可直接行动：
-
-```python
-v = b.verify("output.pptx")
-for s in v["slides"]:
-    # 正向：带填充形状内的文字是否水平+垂直居中
-    for cell in s["shape_cells"]:
-        if cell["centering"] != "centered":
-            print(f"S{s['slide']} 形状文字未居中: {cell['text']} → {cell['centering']}")
-    # 反向：纯 textbox 中心不落在任何形状内 → 游离文字
-    for o in s["orphan_texts"]:
-        print(f"S{s['slide']} 游离文字: {o['text']} @({o['x']},{o['y']})")
-```
-
-| 字段 | 含义 |
+| param | values |
 |:--|:--|
-| `slide / n_shapes / n_text / n_borders` | 每页计数 |
-| `frame_top / frame_bottom` | 是否有全宽细边（装饰边框） |
-| `coverage` | 内容覆盖率（留白代理，0-1） |
-| `shape_cells` | 带填充形状文字居中状态：`centered` / `h_not_centered` / `v_not_centered` / `not_centered` |
-| `orphan_texts` | 中心不在任何形状内的自由文字（位置 x/y） |
+| `columns` | 1–4 |
+| `gap` | pt |
+| `density` | `compact` \| `normal` \| `airy` |
 
-### Build + read diagnostics
+### Deco skins (engine computes geometry — do not write coordinates)
 
-```python
-# 推荐：分页流式 — 逐页 yield，AI 边跑边看，一页报错就停
-for slide_result in b.build_stream("output.pptx"):
-    if slide_result["type"] == "start":
-        print(f"Building {slide_result['total_slides']} slides...")
-    elif slide_result["type"] == "slide":
-        errs = [d for d in slide_result["diagnostics"] if d["severity"] == "error"]
-        if errs:
-            print(f"S{slide_result['slide']:02d}: {len(errs)} errors — STOP, fix this page only")
-            break
-    elif slide_result["type"] == "summary":
-        print(slide_result["summary"])
+| key | values |
+|:--|:--|
+| `frame` | `top_bottom_band` |
+| `rail` | `left` \| `right` |
+| `corner_mark` | `tl` \| `tr` |
 
-# 增量修复：改一页不动其他页
-b.fix_slide(2, elements=[b.title("Fixed Title", region="header"), ...])
-r = b.rebuild([2], "output.pptx")  # 只重跑 slide 2 的 pipeline，其余走缓存
-# rebuild 返回格式同 build()，额外含 "cached_slides" 键
+---
 
-# 传统一次性模式
-r = b.build("output.pptx")
-# Returns: {"ok": bool, "summary": str, "diagnostics": list, "path": str,
-#           "raw_diagnostic_count": int, "collapsed": {dedup, batch, trimmed_*}}
+## 6. Element methods
 
-for d in r["diagnostics"]:
-    if d["severity"] == "error":
-        # d keys: slide, phase, kind, severity, elem_id, message
-        print(f"S{d['slide']:02d} [{d['phase']}] {d['kind']}: {d['message']}")
-```
-
-### Diagnosis triage — FIX vs IGNORE
-
-| severity + phase | meaning | action |
+| Method | Key parameters | Notes |
 |:--|:--|:--|
-| `error` + `0.5/1/pre` | Real layout/validation error | 🔧 FIX |
-| `error` + `freeze` + TEXT | Text overflow in fixed box | 🔧 FIX |
-| `error` + `3.0 tri_*` | Contrast/invisible text | 🔧 FIX |
-| **`warning` + `freeze` + b.box()** | **Box overflow — PPTX auto-expands** | **🚫 IGNORE** |
-| **`warning` + `2/3.0/2.5`** | **`overlap` / `tri_*` / anti-AI** | **👀 Worth reading — cross-region collision, contrast, AI-tell** |
-| `warning` (other) | Margin, spacing, density | 🚫 IGNORE |
-| `info` (any phase) | Advisory | 🚫 IGNORE |
+| `title(text)` | `text` | slide/section heading |
+| `subtitle(text)` | `text` | secondary heading |
+| `text(text, style=...)` | `style="Body"\|"Subheading"\|"Caption"\|"Heading"` | body text |
+| `bullet(text)` | `text` | one list item |
+| `footer(text)` | `text` | footer line |
+| `box(text, style, fill_color, shape_id, ph, align_h, recipe, corner_radius)` | `recipe="card"\|"kpi"\|"quote"` | card / KPI / quote container |
+| `shape(shape_id, fill_color, pw, ph, text)` | `pw`/`ph` size | decorative or labeled shape |
+| `image(path, pw, ph, fit_mode, layout_mode, caption)` | `path` | image |
+| `table(headers, rows)` | `headers`, `rows` | data table |
+| `divider(color)` | `color` | decoration |
+| `arrow(from_elem_or_id, to, text, direction)` | `from`/`to` = element or id | connector |
 
-**Golden rule: file >100KB on disk → it's fine. Don't read diagnostics beyond `[d for d in r["diagnostics"] if d["severity"]=="error"]`.**
-**Strict mode: `PPTBuilder(..., strict_anti_ai=True)` 将 anti-AI warning 升级为 error，需要时才开。**
-
-### Token explosion prevention — 3 IRON RULES
-
-1. **Diagnosis ≠ crash.** `b.box()` overflow = warning. PPTX auto-expands boxes. Only `severity: "error"` counts.
-2. **Batch fix.** grep all same-error → one bulk edit → ONE run. Never: fix → run → fix → run.
-3. **Read fragments.** `Read(file, offset=N, limit=30)` for the broken slide only. Full file only when rewriting.
-
-### Open generated file
-
-```python
-import os; os.startfile("output.pptx")
-```
-
-### AI Image Prompt Generation (ImagePrompter)
-
-```python
-from ppt_reflex.image_prompter import ImagePrompter
-p = ImagePrompter(template="academic")
-prompt = p.generate(subject="topic", image_type="scientific_diagram", provider="midjourney")
-print(prompt.full_prompt)       # paste into AI image tool
-print(prompt.negative_prompt)
-```
-
-6 image types (for AI GENERATION only, not user-provided files):
-
-| Type | Use Case | Tool | Aspect |
-|:--|:--|:--|:--|
-| `scientific_diagram` | Mechanism / workflow / methodology | Midjourney | 16:9 |
-| `experiment_photo` | Equipment / samples / lab scenes | Midjourney | 4:3 |
-| `data_chart` | Data viz / comparison / infographic | Midjourney | 16:9 |
-| `concept_illustration` | Abstract concepts / covers | Midjourney | 16:9 |
-| `material_structure` | Crystal structure / molecular models | Midjourney | 1:1 |
-| `hero_image` | Title slide / section dividers | DALL·E | 16:9 |
+- `fill_color` is an RGB tuple `(R, G, B)`.
+- `box(recipe="kpi"|"quote")` pulls from the design-token recipes (§7).
 
 ---
 
-## Full Example — 3 slides, 0 errors
+## 7. Design tokens & recipes
 
 ```python
-from ppt_reflex.builder import PPTBuilder
-
-b = PPTBuilder(template="minimal", style="tech_dark")
-ACCENT = (34, 211, 238); WARN = (251, 113, 133); DARK = (16, 26, 45)
-
-# Slide 1 — Cover
-b.add_slide("Computer Science's Greatest WTFs",
-    regions=[
-        ("header", 60, 30, 840, 60, 1),
-        ("hero", 40, 120, 880, 250, 2),
-        ("footer", 60, 400, 840, 100, 3),
-    ],
-    elements=[
-        b.title("Computer Science's Greatest WTFs", region="header"),
-        b.shape("star", region="hero", fill_color=WARN, pw=80, ph=80),
-        b.shape("hexagon", region="hero", fill_color=ACCENT, pw=60, ph=60),
-        b.text("A journey through the weirdest corners of computing", style="Caption", region="footer"),
-    ],
-)
-
-# Slide 2 — Overview with arrows
-hub = b.shape("hexagon", region="center", fill_color=ACCENT, pw=200, ph=80)
-tl = b.box("Esoteric\nLanguages", style="Body", region="top_l", fill_color=DARK)
-tr = b.box("Impossible\nProblems", style="Body", region="top_r", fill_color=DARK)
-
-b.add_slide("What's On The Menu",
-    regions=[
-        ("header", 60, 30, 840, 60, 1),
-        ("center", 350, 230, 260, 100, 2),
-        ("top_l", 80, 120, 200, 80, 3),
-        ("top_r", 680, 120, 200, 80, 4),
-    ],
-    elements=[
-        b.title("Five Realms of Computational Chaos", region="header"),
-        hub, b.title("CS\nChaos", region="center"), tl, tr,
-    ],
-    arrows=[
-        b.arrow(hub, tl, "brain-melting syntax", "above", color=ACCENT),
-        b.arrow(hub, tr, "can't be solved", "above", color=ACCENT),
-    ],
-)
-
-# Slide 3 — Content with bullet lists
-b.add_slide("Brainfuck: 8 Characters of Pain",
-    regions=[
-        ("header", 60, 30, 840, 60, 1),
-        ("main", 60, 100, 520, 380, 2),
-        ("code", 620, 100, 280, 240, 3),
-        ("tip", 620, 370, 280, 110, 4),
-    ],
-    elements=[
-        b.title("The Most Famous Esolang", region="header"),
-        b.bullet("Operates on a 30,000-cell array of bytes — a Turing machine tape", region="main"),
-        b.bullet("[ and ] form loops: \"while current cell != 0, repeat\"", region="main"),
-        b.bullet("Turing-complete — you can write ANY program with 8 symbols", region="main"),
-        b.bullet("\"Hello World\" in Brainfuck is 106 characters of pure punctuation", region="main"),
-        b.box("++++++++[>++++[>++>+++>+++>+<<<<-]\n>+>+>->>+[<]<-]>>\n.>---.+++++++..+++.>>",
-              style="Body", region="code", fill_color=DARK),
-        b.box("Try reading it out loud.\nYour family will stage an intervention.",
-              style="Body", region="tip", fill_color=DARK),
-    ],
-)
-
-r = b.build("cs_wtf.pptx")
-print(r["summary"])
-# Expect: 0 errors
+from ppt_reflex.grid.design_tokens import get_token, resolve_recipe
 ```
+
+| Source | Contents |
+|:--|:--|
+| `tokens.json` | tiers for `spacing` / `radius` / `shadow` / `type_scale` / `color` |
+| `recipes.json` | `card` / `kpi` / `quote` |
+
+- `get_token(...)` — read a design-token tier.
+- `resolve_recipe(...)` — resolve a named recipe (`card` / `kpi` / `quote`).
 
 ---
 
-## Color Conventions
+## 8. Archetypes, hooks, ASCII feedback
 
-- RGB tuples only: `(34, 211, 238)` — NOT `"#22D3EE"`
-- Never `(0,0,0)` or `(255,255,255)`
-- Dark bg range: `(26,26,46)` — `(16,26,45)`
-- Dark fills auto-invert text to white — no manual color needed
+### resolve_archetype
 
-## Image Sources
-
-- Unsplash: `https://images.unsplash.com/photo-{id}?w=800&q=80`
-- User provides local files → `b.image("path/to/file.jpg", ...)`
-- AI generation → `ImagePrompter.generate()` → show prompts → user fetches images → resume
-
-## Workflow — /ppt command
-
-```
-/ppt
-  │
-  ├─ Step 0: Questionnaire — ① Topic? ② Content? ③ Images? ④ Template?
-  │
-  ├─ Step 1: Show plan → user confirms
-  │
-  ├─ Step 2: Image processing (if needed)
-  │
-  ├─ Step 3: Generate using ZERO-ERROR SKELETON
-  │   NEVER start from scratch. Copy skeleton, add content.
-  │   b.title() for headings. b.bullet() for lists. b.box() for text cards.
-  │   Header ≥ 60pt. No captions on images.
-  │
-  ├─ Step 3.5: COMPLETENESS GATE — self-check BEFORE build()
-  │   Run: len(b._slides), count elements per slide, count shapes, count boxes
-  │   If elements < slides*3 → too sparse, go back
-  │   If shapes == 0 → no visual interest, go back
-  │
-  └─ Step 4: build() → check diagnostics → output
-```
-
-## COMPLETENESS GATE — self-check BEFORE build()
-
-**Before calling `b.build("output.pptx")`, answer these 5 questions. If any answer is NO, go back and add content.**
-
-```
-1. Slides count ≥ what the user asked for?          [ ]
-2. Every slide has ≥ 3 elements (not counting header)? [ ]
-3. At least 1 b.shape() used (not just text)?        [ ]
-4. At least 1 b.box() with fill_color used?          [ ]
-5. Arrows used if there's a flow/diagram to show?    [ ]
-```
-
-**If ≥3 questions are NO → you're cheating. Add content, then re-check.**
-
-**美学自检 — 生成前每页过一遍：**
-```
-① 每页有 1-2 个大形状做视觉主角（≥8% 画面）？   [ ]
-② 形状有语义（和内容相关），不是随手占版面？     [ ]
-③ 形状家族全 deck 统一（多边形 or 圆润）？       [ ]
-④ accent 色只用 1 个，面积 ≤ 15%？              [ ]
-⑤ 布局和前一页不同（不是所有页同构）？          [ ]
-⑥ 留白 ≥ 35%（内容不贴边）？                    [ ]
-```
-
-Also verify mechanically:
 ```python
-n_slides = len(b._slides)
-n_elements = sum(len(s.elements) for s in b._slides)
-n_shapes = sum(1 for s in b._slides for e in s.elements if e.ctype == "shape")
-n_boxes = sum(1 for s in b._slides for e in s.elements if e.ctype == "textbox")
-print(f"Slides: {n_slides}, Elements: {n_elements}, Shapes: {n_shapes}, Boxes: {n_boxes}")
-# If n_elements < n_slides * 3 → TOO SPARSE
-# If n_shapes == 0 → NO VISUAL
+from ppt_reflex.grid.archetypes import resolve_archetype
 ```
 
-## DON'T — FINAL WARNING
+Returns a **new, parameterized primitive instance** (clone an archetype with overridden params).
 
-1. **Do NOT read ppt_reflex/ source code.** All APIs are in this doc.
-2. **Do NOT import from grid/ directly.** Only `from ppt_reflex.builder import PPTBuilder`.
-3. **Do NOT rely on `b.text()` as the default body-text tool.** Prefer `b.title()` for headings, `b.bullet()` for lists, `b.box()` for text cards — they auto-fit. If you must use `b.text()`, pass `style="Caption"` (10pt, fits any region).
-4. **Do NOT mix light-bg templates with dark-bg styles.** `product` template ONLY with `tech_dark` style.
-5. **Do NOT use 50pt header regions for titles.** Minimum 60pt.
-6. **Do NOT self-author palette colors.** Use theme's `palettes` or explicit overrides from the 美学宪法 ①.
+### set_render_frame_hook
+
+```python
+from ppt_reflex.builder import set_render_frame_hook
+
+set_render_frame_hook(fn)   # fn(elem_id, content_type, payload, x, y, w, h)
+```
+
+Called **right before every element renders** — read-only observation (return value ignored); use it for streaming previews or inspection.
+
+### render_slide_ascii
+
+```python
+from ppt_reflex.grid.ascii_map import render_slide_ascii
+```
+
+Returns `{ L0, L1, L2 }`:
+
+| Level | Meaning | Grid |
+|:--|:--|:--|
+| `L0` | structure map | 40 pt per cell |
+| `L1` | element map — `#` marks overlap, `!` marks overflow | 20 pt per cell |
+| `L2` | text numeric table | — |
+
+---
+
+## 9. Runner bridge (JSON over stdin)
+
+The engine is driven through `D:\ppt\_dsh_ppt_runner.py`. It reads **one JSON object on stdin** and writes JSON to stdout.
+
+### catalog
+
+```json
+{"action": "catalog"}
+```
+
+Returns `templates` / `styles` (with accent + bg colors) / `archetypes`.
+
+### build
+
+```json
+{
+  "action": "build",
+  "template": "...",
+  "style": "...",
+  "overrides": {"bg_hex": "#...", "accent_hex": "#..."},
+  "page_w": 960,
+  "page_h": 540,
+  "output": "...",
+  "slides": [ "..." ],
+  "stream": true,
+  "frames_out": "D:/ppt/_frames_auto.jsonl"
+}
+```
+
+**`slides[].elements` types:**
+
+`title` · `subtitle` · `text` · `bullet` · `box` (uses `recipe`) · `shape` · `image` (uses `image_path`) · `table` · `footer` · `divider`
+
+**`slides[].arrows`:** `[{"from": ..., "to": ..., "text": ...}]`
+
+**Minimal deck example** (one slide; every element has an `id`, text fields are short):
+
+```json
+{
+  "action": "build",
+  "template": "business",
+  "style": "corporate_minimal",
+  "output": "D:/ppt/out.pptx",
+  "slides": [
+    {
+      "title": "Q3 Review",
+      "archetype": "title_cover",
+      "frame": "top_bottom_band",
+      "rail": "left",
+      "elements": [
+        {"id": "t1", "type": "title", "text": "Q3 Review"},
+        {"id": "s1", "type": "subtitle", "text": "Growth and risks"},
+        {"id": "c1", "type": "box", "text": "Executive deck", "recipe": "card"}
+      ],
+      "arrows": []
+    }
+  ]
+}
+```
+
+Element fields by type: `title/subtitle/text/bullet/footer` → `{id, type, text, style?}` · `box` → `{id, type, text, recipe?, style?, fill_color?: [R,G,B], shape_id?, ph?, align_h?}` · `shape` → `{id, type, shape_id, fill_color?, pw?, ph?, text?}` · `image` → `{id, type, image_path, layout_mode?, caption?}` · `table` → `{id, type, headers: [...], rows: [[...]]}` · `divider` → `{id, type}`.
+
+### stream mode (`"stream": true`)
+
+stdout is JSONL — one object per line. Frame lines come first, then the final result:
+
+```
+{"frame": {"clear_slide": ..., "slide": 0}}
+{"frame": {"slide": 0, "kind": "...", "elem_id": "...", "text": "...", "x": ..., "y": ..., "w": ..., "h": ..., "fill": ..., "font_size": ...}}
+...
+{"result": {"path": "...", "ok": ..., "diagnostics": [...], "summary": "...", "template": "...", "style": "...", "ascii": [{"L0": "...", "L1": "...", "L2": "..."}], "survey": ...}}
+```
+
+- The last line is always the `result` object.
+- `ascii` is a list of per-slide `{L0, L1, L2}` objects.
+
+### non-stream mode
+
+stdout is **one line**: the `result` JSON only.
+
+---
+
+## 10. DSH workflow — the file bridge (mandatory)
+
+The agent must follow these steps in order:
+
+| Step | Action |
+|:--|:--|
+| 1 | User states need in conversation → run the 8-item questionnaire (§3). |
+| 2 | Generate the deck → write `D:\ppt\_deck_auto.json`. |
+| 3 | Read `D:\ppt\_palette_auto.json` (panel palette, user-selected) → merge into `overrides`. Conversation-provided hex always wins. |
+| 4 | Build: in `pwsh`, run the runner with the deck + `"stream": true` + `"frames_out"`. Redirect stdout if desired — frames go to the file. |
+| 5 | Tell the user to open the panel **`▸ PPT 预览`**. |
+| 6 | Handle feedback (§11) → on any change, re-run step 4. |
+
+- `_deck_auto.json` mirrors the `build` payload's `slides` array: each slide carries `archetype`, `params`, `frame` / `rail` / `corner_mark`, `elements`, `arrows`.
+- `_palette_auto.json` is the panel's color palette written from user selections; merge it into `overrides`, but conversation hex takes priority.
+
+---
+
+## 11. Feedback handling
+
+Read `D:\ppt\_feedback_auto.json`:
+
+```json
+{
+  "requests": [
+    {
+      "type": "color" | "question" | "area",
+      "slide": 0,
+      "elem_id": "..." | null,
+      "color_hex": "#..." | null,
+      "question": "..." | null,
+      "area": {"x": 0, "y": 0, "w": 0, "h": 0} | null,
+      "elems": ["..."] | null
+    }
+  ]
+}
+```
+
+| `type` | Handled by |
+|:--|:--|
+| `color` | panel — already auto-applied; agent ignores it |
+| `question` | agent |
+| `area` | agent |
+
+Resolve "this" / "that" references by reading `D:\ppt\_selection_auto.json`.
+
+### Fuzzy-word mapping
+
+| User says | Meaning → action |
+|:--|:--|
+| "crowded" / 挤 | lower the density tier, or delete elements |
+| "empty" / 空 | raise the density tier, or add elements |
+| "messy" / 乱 | change the primitive |
+| "ugly" / 丑 | change `style` or `recipe` |
+| "hard to read" / 看不清 | run a contrast diagnosis |
+
+When feedback is vague, offer **2–3 concrete options** and let the user choose. If the user cannot decide, produce a **dual-option comparison** (two variants side by side).
+
+---
+
+## 12. Diagnostic repair loop
+
+When `result.ok == false`, fix only the diagnostics with `severity == "error"`.
+
+Kinds include: `overflow_vertical` · `silent_overflow` · `overlap` · `region_out_of_page` · `tight_gap` · …
+
+Rules:
+
+- Change the **declaration** (archetype / params / recipe / deco / element count) — never fine-tune coordinates.
+- Maximum **3 rounds** of repair.
+
+---
+
+## 13. Escape hatches — only when declarations cannot express the result
+
+If a declaration cannot cover the requirement, **say so explicitly and degrade**; never force it.
+
+| Level | What | When |
+|:--|:--|:--|
+| **L1** | Hand-write `regions` in the deck to override the archetype; use the `blank` primitive for fully manual layout. | Archetype geometry is insufficient. |
+| **L2** | Override the solver with element params `pw` / `ph` / `align_h` / `margin` / `role`. | Per-element fine control is needed. |
+| **L3** | Write Python in the conversation that calls the engine API / `python-pptx` / `officecli` directly to modify the file. | Nothing above suffices. |
+
+L3 is the only case where reading engine source or bypassing the runner is permitted.
+
+---
+
+## 14. DON'T
+
+1. Do **not** hand-write `regions` coordinates — except Escape Hatches L1 / L2 / L3.
+2. Do **not** create color values — relay preset names or the user's hex verbatim.
+3. Do **not** read `grid/` (or `ppt_reflex/`) source — this file is the sole fact source; only Escape Hatch L3 is exempt.
+4. Do **not** force a declaration that does not express the intent — degrade via an escape hatch.
+5. Do **not** skip missing questionnaire items or guess — ask each missing item exactly once.
