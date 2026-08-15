@@ -10,7 +10,7 @@ Canvas: 960×540pt default. All coordinates relative to top-left.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 @dataclass
 class SlideArchetype:
@@ -50,7 +50,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Content (Bullets)",
         description="Standard content — header + bullet list + sidebar card",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("main", 60, 110, 520, 380, 2),
             ("sidebar", 600, 110, 300, 380, 3),
         ],
@@ -64,7 +64,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Two Column",
         description="Side-by-side content — header + equal left/right columns",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("left", 60, 110, 400, 390, 2),
             ("right", 500, 110, 400, 390, 3),
         ],
@@ -81,7 +81,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Comparison (A vs B)",
         description="Two items side-by-side — pros/cons, before/after, option A/B",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("item_a", 60, 110, 360, 380, 2),
             ("vs_center", 440, 240, 80, 60, 4),
             ("item_b", 540, 110, 360, 380, 3),
@@ -101,7 +101,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Data Showcase",
         description="Table or chart front-and-center — header + data + caption",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("data", 60, 110, 840, 320, 2),
             ("caption", 60, 450, 840, 60, 3),
         ],
@@ -115,7 +115,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Grid Cards (2×2)",
         description="Four equal cards — features, team, use cases",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("card_tl", 60, 110, 400, 180, 2),
             ("card_tr", 500, 110, 400, 180, 2),
             ("card_bl", 60, 310, 400, 180, 2),
@@ -136,7 +136,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Image Hero",
         description="Large image dominates — text is supporting narration",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("hero", 60, 110, 840, 340, 2),
             ("overlay", 60, 470, 840, 40, 3),
         ],
@@ -194,7 +194,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
         name="Timeline / Roadmap",
         description="Horizontal timeline with milestone nodes",
         regions=[
-            ("header", 60, 30, 840, 60, 1),
+            ("header", 60, 30, 840, 72, 1),
             ("track", 60, 240, 840, 60, 2),
             ("nodes", 60, 130, 840, 90, 3),
             ("labels", 60, 320, 840, 180, 4),
@@ -247,6 +247,144 @@ def list_archetypes() -> list[dict]:
         {"id": aid, "name": a.name, "description": a.description, "guide": a.ai_guide}
         for aid, a in ARCHETYPES.items()
     ]
+
+
+# ═══════════════════════════════════════════════════════════
+# Parameterized resolution — columns / gap / density
+# ═══════════════════════════════════════════════════════════
+
+_CANVAS_W = 960
+_CANVAS_H = 540
+_PAGE_MARGIN = 60                    # left/right margin preserved in grid layouts
+_GRID_CONTENT_W = _CANVAS_W - 2 * _PAGE_MARGIN   # 840pt content width
+_GRID_TOP = 110                      # card area top (below the fixed header)
+_GRID_HEIGHT = 380                   # default card area height (y 110..490)
+_DEFAULT_GAP = 40                    # default column gutter (matches original grid_cards)
+_MIN_BOTTOM_MARGIN = 20              # floor kept when density grows the card area
+_N_CARDS = 4                         # grid_cards is "four equal cards"
+
+# density → scale applied to gap and to the card-area height
+_DENSITY_SCALE = {
+    "compact": 0.75,
+    "normal": 1.0,
+    "airy": 1.25,
+}
+
+_GRID_PARAMS = ("columns", "gap", "density")
+_GRID_ARCHETYPES = frozenset({"grid_cards"})
+
+
+def _copy_archetype(base: SlideArchetype) -> SlideArchetype:
+    """Deep-enough copy so the returned instance never shares mutable state
+    with the registry's instance."""
+    return replace(
+        base,
+        regions=list(base.regions),
+        zone_map=dict(base.zone_map),
+        distribute={k: list(v) for k, v in base.distribute.items()},
+    )
+
+
+def resolve_archetype(archetype_id: str, params: dict | None = None) -> SlideArchetype:
+    """Resolve an archetype with optional layout parameters.
+
+    Returns a NEW SlideArchetype instance; the global ARCHETYPES registry is
+    never mutated. With no params (or {}), the returned instance is a copy of
+    the built-in layout.
+
+    Parameters (all optional — omit to keep the built-in layout):
+      - columns: int 1..4            (grid_cards only) number of columns for the
+                                      four cards.
+      - gap:     positive number     (grid_cards only) gutter between cards, pt.
+      - density: "compact"|"normal"|"airy"
+                                     (grid_cards only) scales gap and card-area
+                                      height proportionally.
+    """
+    base = get_archetype(archetype_id)
+
+    if not params:
+        return _copy_archetype(base)
+
+    unknown = set(params) - set(_GRID_PARAMS)
+    if unknown:
+        raise ValueError(
+            f"Unsupported parameter(s) {sorted(unknown)} for archetype "
+            f"{archetype_id!r}; supported: {list(_GRID_PARAMS)}"
+        )
+
+    if archetype_id not in _GRID_ARCHETYPES:
+        raise ValueError(
+            f"Archetype {archetype_id!r} does not accept layout parameters "
+            f"(columns/gap/density); supported archetypes: "
+            f"{sorted(_GRID_ARCHETYPES)}"
+        )
+
+    # ── validate values ──
+    columns = params.get("columns", 2)
+    if isinstance(columns, bool) or not isinstance(columns, int) \
+            or not (1 <= columns <= 4):
+        raise ValueError(f"columns must be an int in 1..4, got {columns!r}")
+
+    gap = params.get("gap", _DEFAULT_GAP)
+    if isinstance(gap, bool) or not isinstance(gap, (int, float)) or gap <= 0:
+        raise ValueError(f"gap must be a positive number (pt), got {gap!r}")
+
+    density = params.get("density", "normal")
+    if density not in _DENSITY_SCALE:
+        raise ValueError(
+            f"density must be one of {sorted(_DENSITY_SCALE)}, got {density!r}"
+        )
+
+    # ── compute card grid ──
+    s = _DENSITY_SCALE[density]
+    col_gap = gap * s                     # horizontal gutter
+    row_gap = col_gap / 2                 # vertical rhythm = half the gutter
+    # card-area height scales with density, clamped to keep a bottom margin
+    grid_h = min(_GRID_HEIGHT * s, _CANVAS_H - _GRID_TOP - _MIN_BOTTOM_MARGIN)
+
+    n_rows = (_N_CARDS + columns - 1) // columns
+
+    col_w = (_GRID_CONTENT_W - (columns - 1) * col_gap) / columns
+    if col_w <= 0:
+        raise ValueError(
+            f"gap {gap!r} is too large for {columns} column(s) within "
+            f"{_GRID_CONTENT_W}pt content width"
+        )
+    row_h = (grid_h - (n_rows - 1) * row_gap) / n_rows
+    if row_h <= 0:
+        raise ValueError(
+            f"gap {gap!r} with density {density!r} is too large for "
+            f"{n_rows} row(s) within {grid_h:g}pt content height"
+        )
+
+    regions = [("header", 60, 30, 840, 72, 1)]
+    card_names = []
+    for i in range(_N_CARDS):
+        r = i // columns
+        c = i % columns
+        x = _PAGE_MARGIN + c * (col_w + col_gap)
+        y = _GRID_TOP + r * (row_h + row_gap)
+        name = f"card_{i}"
+        regions.append((name, round(x, 2), round(y, 2),
+                        round(col_w, 2), round(row_h, 2), 2))
+        card_names.append(name)
+
+    zone_map = {"title": "header", "subtitle": "header",
+                "box": "card_0", "image": "card_0", "shape": "card_0",
+                "text": "card_0", "bullet": "card_0"}
+    distribute = {"box": list(card_names),
+                  "image": list(card_names),
+                  "shape": list(card_names)}
+    ai_guide = (f"title→header, boxes auto-distributed across {_N_CARDS} card "
+                f"slots ({columns}×{n_rows}) by insertion order")
+
+    return replace(
+        base,
+        regions=regions,
+        zone_map=zone_map,
+        distribute=distribute,
+        ai_guide=ai_guide,
+    )
 
 
 # ═══════════════════════════════════════════════════════════

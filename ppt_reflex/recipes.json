@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "description": "Component recipes — reference design tokens by level name only, never raw values. Resolve via resolve_recipe(name).",
+    "modifiable": true
+  },
+  "card": {
+    "shape": "rounded_rectangle",
+    "radius": "md",
+    "padding": "md",
+    "shadow": "sm",
+    "fill": "surface",
+    "stroke": "border",
+    "text_color": "ink",
+    "title_size": "lg",
+    "body_size": "md"
+  },
+  "kpi": {
+    "shape": "rounded_rectangle",
+    "radius": "md",
+    "padding": "lg",
+    "shadow": "md",
+    "fill": "surface",
+    "stroke": "border",
+    "value_size": "xl",
+    "value_color": "accent",
+    "label_size": "sm",
+    "label_color": "ink_soft",
+    "accent_bar": "accent"
+  },
+  "quote": {
+    "shape": "rounded_rectangle",
+    "radius": "sm",
+    "padding": "xl",
+    "shadow": "sm",
+    "fill": "accent_soft",
+    "stroke": "accent",
+    "text_color": "ink",
+    "body_size": "lg",
+    "attribution_size": "sm",
+    "attribution_color": "ink_soft"
+  }
+}

@@ -42,3 +42,28 @@ ppt_reflex/PPTReflexService/
 # OS
 .DS_Store
 Thumbs.db
+
+# ppt-reflex runtime bridges (panel/agent state)
+_frames_auto.jsonl
+_deck_auto.json
+_feedback_auto.json
+_selection_auto.json
+_palette_auto.json
+_stream_out.jsonl
+_stream_err.txt
+_ascii_out.json
+_result_v2.json
+_smoke*.pptx
+_smoke*.py
+whitecollar*.pptx
+_ov_*.pptx
+_ov_*.json
+_probe*.py
+_probe*.pptx
+
+
+_deck_whitecollar.json
+_deck_whitecollar_v2.json
+
+!_dsh_ppt_runner.py
+

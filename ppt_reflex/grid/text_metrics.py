@@ -1,20 +1,30 @@
 """
-grid/text_metrics.py — text render size estimator (no font file dependency)
+grid/text_metrics.py — text render size estimator (PIL real glyph metrics)
 
-Estimates rendered_bbox for overflow detection. Accuracy ±8% for Latin/CJK.
+Estimates rendered_bbox for overflow detection.
 
-Principle:
-  CJK ≈ 1.0em/char, Latin weighted average ~0.55em/char
-  rendered_h = line_height × actual_line_count
-  rendered_w = max(line_widths)
+Width measurement uses PIL ImageFont.getlength against Microsoft YaHei
+(CJK-capable, ships with Windows). Fallback order:
+  1. Microsoft YaHei (msyh.ttc / msyhbd.ttc) real FreeType glyph advances
+  2. PIL built-in default font (graceful, ASCII-only)
+  3. em-based estimate (last resort, never raises)
+
+Height stays line_height × line_count (layout, not glyph metrics).
 """
 
 from __future__ import annotations
 import math
+import os
+import sys
 import unicodedata
+from functools import lru_cache
+
+from PIL import ImageFont
 
 # ═══════════════════════════════════════════════════════════
 # CHARACTER WIDTH FACTORS (relative to font_size_pt)
+# Used ONLY as a last-resort fallback when PIL glyph measurement is unavailable.
+# Primary measurement is real FreeType advance widths (see _measure_width below).
 # ═══════════════════════════════════════════════════════════
 
 # Per-character overrides for Latin glyphs that deviate significantly from the 0.55 average.
@@ -70,10 +80,114 @@ def _char_width_em(ch: str) -> float:
     return _DEFAULT_LATIN
 
 
+# ═══════════════════════════════════════════════════════════
+# REAL GLYPH MEASUREMENT (PIL FreeType)
+# ═══════════════════════════════════════════════════════════
+
+# Microsoft YaHei ships with Windows as a .ttc collection.
+_MSYH_FONT_NAMES = ("msyh.ttc", "msyhbd.ttc")
+
+_resolved_font_path: str | None = None
+_resolved_font_ready = False
+
+
+def _find_font_path() -> str | None:
+    """Locate Microsoft YaHei on this machine; None → use PIL default."""
+    candidates: list[str] = []
+    if sys.platform == "win32":
+        windir = os.environ.get("WINDIR") or r"C:\Windows"
+        candidates.extend(os.path.join(windir, "Fonts", n) for n in _MSYH_FONT_NAMES)
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _resolve_font_path() -> str | None:
+    global _resolved_font_path, _resolved_font_ready
+    if not _resolved_font_ready:
+        _resolved_font_path = _find_font_path()
+        _resolved_font_ready = True
+    return _resolved_font_path
+
+
+def _font_key() -> str:
+    """Cache identity for the active font (path, or 'default')."""
+    return _resolve_font_path() or "default"
+
+
+# Loaded font objects, keyed by (font_key, size_px). Font loading is expensive;
+# measurement reuses the same object for a given size.
+_font_object_cache: dict[tuple[str, int], object] = {}
+
+
+def _build_font(font_key: str, size_px: int):
+    if font_key != "default":
+        try:
+            return ImageFont.truetype(font_key, size_px, index=0)
+        except Exception:
+            pass
+    try:
+        return ImageFont.load_default(size=size_px)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _font_for(font_key: str, size_px: int):
+    key = (font_key, size_px)
+    font = _font_object_cache.get(key)
+    if font is None:
+        font = _build_font(font_key, size_px)
+        _font_object_cache[key] = font
+    return font
+
+
+def _size_px(font_pt: float) -> int:
+    """Font size in px. At 72 DPI 1px == 1pt, so pixel width == point width."""
+    return max(1, int(round(font_pt)))
+
+
+# Control + zero-width chars contribute no advance in PPT rendering; strip them
+# so FreeType does not measure a tab/ZWSP glyph we would otherwise count.
+_MEASURE_STRIP = dict.fromkeys(
+    map(ord, "\t\r\n\x0b\x0c\u200b\u200c\u200d\u200e\u200f\ufeff")
+)
+
+
+def _sanitize_for_measure(text: str) -> str:
+    if not text:
+        return ""
+    if any(ord(ch) in _MEASURE_STRIP for ch in text):
+        return text.translate(_MEASURE_STRIP)
+    return text
+
+
+_CACHE_MAX = 8192
+
+
+@lru_cache(maxsize=_CACHE_MAX)
+def _measure_width(font_key: str, size_px: int, text: str) -> float:
+    """Real advance width (pt) of `text`, cached by (font, size, text).
+
+    Uses ImageFont.getlength — the horizontal pen advance, which is exactly
+    the metric PowerPoint uses for line layout / wrapping / overflow.
+    """
+    font = _font_for(font_key, size_px)
+    try:
+        return float(font.getlength(text))
+    except Exception:
+        # Last-resort fallback: em-based estimate. Never raises.
+        return sum(_char_width_em(ch) for ch in text) * size_px
+
+
 def _line_width(line: str, font_pt: float) -> float:
-    """Estimated rendered width of a single line (pt)."""
-    w = sum(_char_width_em(ch) * font_pt for ch in line)
-    return max(w, 0.0)
+    """Rendered advance width of a single line (pt), via real glyph metrics."""
+    if not line:
+        return 0.0
+    clean = _sanitize_for_measure(line)
+    if not clean:
+        return 0.0
+    return _measure_width(_font_key(), _size_px(font_pt), clean)
 
 
 def _unbreakable_runs(line: str) -> list[str]:
