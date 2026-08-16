@@ -35,7 +35,7 @@ const TYPERT_REMOTE = {
 
 const I18N = {
   zh: {
-    entry: 'PPT 预览', btnOpen: '▸ PPT 预览', title: 'PPT 预览', foot: 'PPT',
+    entry: 'PPT 预览', btnOpen: '▸ PPT 预览', title: 'PPT 预览', foot: 'PPT 制作',
     waitBuild: '等待构建（在对话里说需求，助手自动生成）',
     building: '构建中… ', elems: ' 个元素',
     done: '完成 ✓ ', fail: '失败 ✗', loaded: '已加载 ', page: '第 ', pageOf: ' / ', pageUnit: ' 页',
@@ -58,7 +58,7 @@ const I18N = {
     rebuildDone: '构建请求已发', jsonInvalid: 'JSON 无效',
   },
   en: {
-    entry: 'PPT Preview', btnOpen: '▸ PPT Preview', title: 'PPT Preview', foot: 'PPT',
+    entry: 'PPT Preview', btnOpen: '▸ PPT Preview', title: 'PPT Preview', foot: 'PPT Maker',
     waitBuild: 'Waiting for build (state your need in chat, agent auto-generates)',
     building: 'Building… ', elems: ' elements',
     done: 'Done ✓ ', fail: 'Failed ✗', loaded: 'Loaded ', page: 'Page ', pageOf: ' / ', pageUnit: '',
@@ -143,29 +143,31 @@ function Thumb({ slide, active, onClick, framesRef, version }) {
     style: {
       width: 44, height: 25, flex: '0 0 auto', cursor: 'pointer', display: 'block',
       background: '#fff', borderRadius: 6, boxSizing: 'border-box',
-      border: active ? '2px solid #3b82f6' : '1px solid rgba(90,100,130,0.45)',
+      border: active ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l1)',
     },
   })
 }
 
 const UI_STYLE_ID = 'dsh-slide-reflex-ui'
 const UI_CSS = [
-  '@keyframes dsrFadeIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }',
+  '@keyframes dsrSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }',
+  '@keyframes dsrFadeIn { from { opacity: 0 } to { opacity: 1 } }',
   '@keyframes dsrPulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }',
-  '.dsr-win { animation: dsrFadeIn 180ms ease; }',
+  '.dsr-win { animation: dsrSlideIn 260ms ease; }',
+  '.dsr-mask { animation: dsrFadeIn 200ms ease; }',
   '.dsr-dot-pulse { animation: dsrPulse 1.1s ease-in-out infinite; }',
   '.dsr-foot { transition: background .15s ease, color .15s ease; }',
-  '.dsr-foot:hover { background: rgba(59,130,246,.18) !important; color: #fff !important; }',
+  '.dsr-foot:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent) !important; color: var(--dsw-alias-label-primary) !important; }',
   '.dsr-primary { transition: filter .15s ease; }',
   '.dsr-primary:hover { filter: brightness(1.1) !important; }',
   '.dsr-btn2 { transition: background .15s ease, border-color .15s ease; }',
-  '.dsr-btn2:hover { background: rgba(90,100,130,.28) !important; border-color: rgba(120,140,180,.55) !important; }',
+  '.dsr-btn2:hover { background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 85%, var(--dsw-alias-brand-primary)) !important; border-color: var(--dsw-alias-border-l2) !important; }',
   '.dsr-sw { transition: transform .12s ease; }',
   '.dsr-sw:hover { transform: scale(1.12); }',
   '.dsr-thumb { transition: border-color .12s ease, box-shadow .12s ease; }',
-  '.dsr-thumb:hover { border-color: #3b82f6 !important; }',
+  '.dsr-thumb:hover { border-color: var(--dsw-alias-brand-primary) !important; }',
   '.dsr-win input:not([type="color"]), .dsr-win textarea { transition: border-color .15s ease; }',
-  '.dsr-win input:not([type="color"]):focus, .dsr-win textarea:focus { border-color: #3b82f6 !important; outline: none; }',
+  '.dsr-win input:not([type="color"]):focus, .dsr-win textarea:focus { border-color: var(--dsw-alias-brand-primary) !important; outline: none; }',
 ].join('\n')
 function ensureStyle() {
   if (document.getElementById(UI_STYLE_ID)) return
@@ -212,9 +214,6 @@ function ensureStyle() {
       const sinceRef = React.useRef(0)
       const dragStartRef = React.useRef(null)
       const winRef = React.useRef(null)
-      const winDragRef = React.useRef(null)
-      const [pos, setPos] = React.useState(null)
-      const [dragging, setDragging] = React.useState(false)
       const [deckText, setDeckText] = React.useState('')
       const [pal, setPal] = React.useState({ accent_hex: '', bg_hex: '', swatches: [] })
 
@@ -348,84 +347,59 @@ function ensureStyle() {
       const DEFAULT_SWATCHES = ['#1D4ED8', '#0F172A', '#1B3A5C', '#0052D9', '#C0392B', '#0D9488']
       const swatches = pal.swatches && pal.swatches.length ? pal.swatches : DEFAULT_SWATCHES
 
-      const C = { bg: 'rgba(15,17,26,0.97)', section: 'rgba(30,34,48,0.8)', border: '1px solid rgba(90,100,130,0.35)', primary: '#2563eb', sub: '#8b93a7', input: '#0f172a' }
-      const inputStyle = { background: C.input, color: '#cbd5e1', border: C.border, borderRadius: 8, padding: '7px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }
+      const C = { bg: 'var(--dsw-alias-bg-base)', section: 'var(--dsw-alias-bg-layer-1)', layer2: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderStrong: 'var(--dsw-alias-border-l2)', primary: 'var(--dsw-alias-brand-primary)', text: 'var(--dsw-alias-label-primary)', sub: 'var(--dsw-alias-label-secondary)', input: 'var(--dsw-alias-bg-layer-2)', warn: 'var(--dsw-alias-state-warn-primary)', err: 'var(--dsw-alias-state-error-primary)' }
+      const inputStyle = { background: C.input, color: C.text, border: C.border, borderRadius: 8, padding: '7px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }
       const colorInputStyle = { width: 30, height: 30, border: C.border, borderRadius: 8, background: 'transparent', cursor: 'pointer', padding: 0, flex: '0 0 auto' }
-      const btnPrimary = { background: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', fontSize: 12 }
-      const btn2 = { background: 'rgba(30,34,48,0.6)', color: '#cbd5e1', border: C.border, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }
+      const btnPrimary = { background: C.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', fontSize: 12 }
+      const btn2 = { background: C.layer2, color: C.text, border: C.border, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }
       const sectTitle = { fontSize: 11, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.5px' }
 
       const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-      const onWinDown = (e) => {
-        if (e.button !== 0) return
-        if (e.target && e.target.closest && e.target.closest('button, input, textarea, select, summary, a')) return
-        const el = winRef.current
-        if (!el) return
-        const r = el.getBoundingClientRect()
-        winDragRef.current = { sx: e.clientX, sy: e.clientY, lx: r.left, ly: r.top }
-        setDragging(true)
-        e.preventDefault()
-      }
-      React.useEffect(() => {
-        if (!dragging) return
-        const mv = (e) => {
-          const d = winDragRef.current
-          if (!d) return
-          const w = Math.min(560, window.innerWidth - 16)
-          const left = clamp(d.lx + e.clientX - d.sx, 8, Math.max(8, window.innerWidth - w - 8))
-          const top = clamp(d.ly + e.clientY - d.sy, 8, Math.max(8, window.innerHeight - 60))
-          setPos({ left, top })
-          e.preventDefault()
-        }
-        const up = () => setDragging(false)
-        document.addEventListener('mousemove', mv)
-        document.addEventListener('mouseup', up)
-        return () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up) }
-      }, [dragging])
 
-      const dotColor = { wait: '#64748b', building: '#f59e0b', done: '#22c55e', fail: '#ef4444', loaded: '#3b82f6' }[statusKind] || '#64748b'
-      const wide = !!(props && props.wide)
+      const dotColor = { wait: 'var(--dsw-alias-label-secondary)', building: 'var(--dsw-alias-state-warn-primary)', done: 'var(--dsw-alias-state-success-primary)', fail: 'var(--dsw-alias-state-error-primary)', loaded: 'var(--dsw-alias-brand-primary)' }[statusKind] || 'var(--dsw-alias-label-secondary)'
+      const wide = !(props && props.wide === false)
       const footBtn = React.createElement('button', {
         className: 'dsr-foot',
         onClick: () => setOpen(true),
         title: t.title,
         style: { display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-          border: '1px solid rgba(90,100,130,0.35)', background: 'rgba(30,34,48,0.6)', color: '#cbd5e1',
-          borderRadius: 8, padding: wide ? '6px 11px' : '6px 9px', fontFamily: 'inherit', fontSize: 12,
+          border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)',
+          borderRadius: 8, padding: wide ? '6px 12px' : '6px 9px', fontFamily: 'inherit', fontSize: 12,
           fontWeight: 600, whiteSpace: 'nowrap', userSelect: 'none' },
       },
         React.createElement('span', { style: { fontSize: 13, lineHeight: 1 } }, '▦'),
         wide ? React.createElement('span', null, t.foot) : null,
       )
       if (!open) return footBtn
+      const maskEl = React.createElement('div', {
+        className: 'dsr-mask',
+        onClick: () => setOpen(false),
+        style: { position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.35)' },
+      })
       const winEl = React.createElement('div', {
         ref: winRef,
         className: 'dsr-win',
         style: { position: 'fixed', zIndex: 10000,
-          left: pos ? pos.left + 'px' : 'calc(50vw - 120px)',
-          top: pos ? pos.top + 'px' : '12vh',
-          width: 560, maxWidth: 'calc(100vw - 16px)', maxHeight: '82vh',
-          display: 'flex', flexDirection: 'column', background: 'rgba(13,15,23,0.98)', color: '#e2e8f0',
-          border: '1px solid rgba(120,130,160,0.4)', borderRadius: 14, boxShadow: '0 24px 64px rgba(0,0,0,0.65)',
-          overflow: 'hidden', fontFamily: 'inherit', fontSize: 13,
-          userSelect: dragging ? 'none' : 'auto', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' },
+          right: 0, top: 0, height: '100vh', width: 480, maxWidth: '92vw',
+          display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)',
+          borderLeft: '1px solid var(--dsw-alias-border-l2)', boxShadow: '-16px 0 48px rgba(0,0,0,0.45)',
+          overflow: 'hidden', fontFamily: 'inherit', fontSize: 13 },
       },
         React.createElement('div', {
-          onMouseDown: onWinDown,
           style: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-            borderBottom: '1px solid rgba(120,130,160,0.2)', background: 'rgba(15,17,26,0.6)',
-            flex: '0 0 auto', cursor: dragging ? 'grabbing' : 'grab', userSelect: 'none' },
+            borderBottom: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-2)',
+            flex: '0 0 auto', userSelect: 'none' },
         },
           React.createElement('span', { className: statusKind === 'building' ? 'dsr-dot-pulse' : undefined,
             style: { width: 8, height: 8, borderRadius: '50%', background: dotColor, flex: '0 0 auto', display: 'inline-block' } }),
           React.createElement('div', { style: { flex: '0 0 auto', minWidth: 0 } },
-            React.createElement('div', { style: { fontSize: 13, fontWeight: 700, color: '#f1f5f9', whiteSpace: 'nowrap' } }, t.title),
-            React.createElement('div', { style: { fontSize: 11, color: C.sub, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 250 } }, status),
+            React.createElement('div', { style: { fontSize: 13, fontWeight: 700, color: 'var(--dsw-alias-label-primary)', whiteSpace: 'nowrap' } }, t.title),
+            React.createElement('div', { style: { fontSize: 11, color: C.sub, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 230 } }, status),
           ),
           React.createElement('div', { style: { flex: 1, minWidth: 8 } }),
           React.createElement('button', { onClick: () => setLang(lang === 'zh' ? 'en' : 'zh'), className: 'dsr-btn2', style: { ...btn2, padding: '6px 10px', fontSize: 11 } }, lang === 'zh' ? 'EN' : '中文'),
           React.createElement('button', { onClick: rebuildFromDeck, className: 'dsr-primary', style: { ...btnPrimary, padding: '6px 12px' } }, '⟳ ' + t.rebuild),
-          React.createElement('button', { onClick: () => { setOpen(false); setPos(null) }, className: 'dsr-btn2', style: { ...btn2, padding: '6px 9px' } }, '✕'),
+          React.createElement('button', { onClick: () => setOpen(false), className: 'dsr-btn2', style: { ...btn2, padding: '6px 9px' } }, '✕'),
         ),
         React.createElement('div', { style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 } },
           React.createElement('div', { style: { background: C.section, border: C.border, borderRadius: 12, padding: 10, flex: '0 0 auto' } },
@@ -462,11 +436,11 @@ function ensureStyle() {
                 const label = rq.type === 'color' ? t.colorPage + (rq.slide + 1) + t.colorPage2 + (rq.label || rq.elem_id) + ' → ' + rq.color_hex
                   : rq.type === 'question' ? t.questionPage + (rq.slide + 1) + t.questionPage2 + rq.elem_id + '：' + rq.question
                   : t.areaPage + (rq.slide + 1) + t.pageUnit + t.pageArea + (rq.elems || []).length + t.pageArea2 + rq.question
-                const barColor = rq.type === 'color' ? rq.color_hex : rq.type === 'question' ? '#f59e0b' : '#3b82f6'
+                const barColor = rq.type === 'color' ? rq.color_hex : rq.type === 'question' ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-brand-primary)'
                 return React.createElement('div', { key: i, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.section, border: C.border, borderRadius: 8, borderLeft: '3px solid ' + barColor } },
                   icon,
-                  React.createElement('span', { style: { flex: 1, fontSize: 11, color: '#cbd5e1', wordBreak: 'break-word', minWidth: 0 } }, label),
-                  React.createElement('button', { onClick: () => { const nx = requests.filter((_, j) => j !== i); setRequests(nx); svc().saveFeedback({ requests: nx }).catch(() => {}) }, className: 'dsr-btn2', style: { background: 'transparent', color: '#f87171', border: 'none', cursor: 'pointer', fontSize: 13, padding: '2px 7px', borderRadius: 6, flex: '0 0 auto' } }, '✕'),
+                  React.createElement('span', { style: { flex: 1, fontSize: 11, color: 'var(--dsw-alias-label-primary)', wordBreak: 'break-word', minWidth: 0 } }, label),
+                  React.createElement('button', { onClick: () => { const nx = requests.filter((_, j) => j !== i); setRequests(nx); svc().saveFeedback({ requests: nx }).catch(() => {}) }, className: 'dsr-btn2', style: { background: 'transparent', color: 'var(--dsw-alias-state-error-primary)', border: 'none', cursor: 'pointer', fontSize: 13, padding: '2px 7px', borderRadius: 6, flex: '0 0 auto' } }, '✕'),
                 )
               }),
             ),
@@ -474,7 +448,7 @@ function ensureStyle() {
           requests.length > 0 ? React.createElement('button', { onClick: applyAndRebuild, className: 'dsr-primary', style: { ...btnPrimary, width: '100%', padding: '11px 16px', fontSize: 13, borderRadius: 10 } },
             '⟳ ' + t.applyRebuild) : null,
           React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, borderTop: C.border, paddingTop: 12, marginTop: 2, flex: '0 0 auto' } },
-            React.createElement('details', { style: { fontSize: 12, color: '#cbd5e1' } },
+            React.createElement('details', { style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)' } },
               React.createElement('summary', { style: { cursor: 'pointer', ...sectTitle } }, t.paletteTitle),
               React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' } },
                 React.createElement('span', { style: { fontSize: 11, color: C.sub } }, t.accent),
@@ -492,10 +466,10 @@ function ensureStyle() {
                 React.createElement('button', { onClick: () => { const c = prompt('hex e.g. #8C97A3'); if (c && /^#[0-9a-fA-F]{6}$/.test(c)) savePal({ ...pal, swatches: [...swatches, c], accent_hex: pal.accent_hex || c }) }, className: 'dsr-btn2', style: { ...btn2, padding: '6px 10px' } }, t.custom),
               ),
             ),
-            React.createElement('details', { style: { fontSize: 12, color: '#cbd5e1' } },
+            React.createElement('details', { style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)' } },
               React.createElement('summary', { style: { cursor: 'pointer', ...sectTitle } }, t.advancedTitle),
               React.createElement('textarea', { value: deckText, onChange: (e) => setDeckText(e.target.value), rows: 3, placeholder: t.deckPlaceholder,
-                style: { width: '100%', marginTop: 10, background: C.input, color: '#cbd5e1', border: C.border, borderRadius: 8, padding: 8, fontFamily: 'monospace', fontSize: 11, boxSizing: 'border-box', resize: 'vertical' } }),
+                style: { width: '100%', marginTop: 10, background: C.input, color: 'var(--dsw-alias-label-primary)', border: C.border, borderRadius: 8, padding: 8, fontFamily: 'monospace', fontSize: 11, boxSizing: 'border-box', resize: 'vertical' } }),
               React.createElement('div', { style: { marginTop: 8, display: 'flex', gap: 6 } },
                 React.createElement('button', { onClick: () => svc().loadDeck().then((r) => { if (r && r.deck) setDeckText(JSON.stringify(r.deck, null, 2)) }).catch(() => {}), className: 'dsr-btn2', style: { ...btn2 } }, t.loadDeck),
               ),
@@ -503,11 +477,11 @@ function ensureStyle() {
           ),
         ),
       )
-      return React.createElement(React.Fragment, null, footBtn, winEl)
+      return React.createElement(React.Fragment, null, footBtn, maskEl, winEl)
     }
 
-    slots.inject('sidebar.footer.action', () => slots.register(
-      { name: 'sidebar.footer.action', id: 'ppt-reflex', order: 5, label: 'PPT' },
+    slots.inject('conversation.composer.dock', () => slots.register(
+      { name: 'conversation.composer.dock', id: 'ppt-reflex', order: 5, label: 'PPT 制作' },
       () => React.createElement(Panel, null),
     ))
   },
