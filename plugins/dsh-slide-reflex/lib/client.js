@@ -156,8 +156,8 @@ const UI_CSS = [
   '.dsr-win { animation: dsrSlideIn 260ms ease; }',
   '.dsr-mask { animation: dsrFadeIn 200ms ease; }',
   '.dsr-dot-pulse { animation: dsrPulse 1.1s ease-in-out infinite; }',
-  '.dsr-foot { transition: background .15s ease, color .15s ease; }',
-  '.dsr-foot:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent) !important; color: var(--dsw-alias-label-primary) !important; }',
+  '.dsr-entry { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; flex: 0 0 auto; transition: background .15s ease, color .15s ease; }',
+  '.dsr-entry:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }',
   '.dsr-primary { transition: filter .15s ease; }',
   '.dsr-primary:hover { filter: brightness(1.1) !important; }',
   '.dsr-btn2 { transition: background .15s ease, border-color .15s ease; }',
@@ -212,14 +212,15 @@ function ensureStyle() {
       const canvasRef = React.useRef(null)
       const framesBySlideRef = React.useRef(new Map())
       const sinceRef = React.useRef(0)
+      const autoOpenedRef = React.useRef(false)
       const dragStartRef = React.useRef(null)
-      const winRef = React.useRef(null)
       const [deckText, setDeckText] = React.useState('')
       const [pal, setPal] = React.useState({ accent_hex: '', bg_hex: '', swatches: [] })
 
       React.useEffect(() => {
-        if (!open) return
-        svc().loadPalette().then((r) => { if (r && r.palette) setPal({ accent_hex: r.palette.accent_hex || '', bg_hex: r.palette.bg_hex || '', swatches: r.palette.swatches || [] }) }).catch(() => {})
+        if (open) {
+          svc().loadPalette().then((r) => { if (r && r.palette) setPal({ accent_hex: r.palette.accent_hex || '', bg_hex: r.palette.bg_hex || '', swatches: r.palette.swatches || [] }) }).catch(() => {})
+        }
         const draw = () => {
           const cv = canvasRef.current
           if (!cv) return
@@ -227,7 +228,8 @@ function ensureStyle() {
         }
         const iv = ctx.interval(async () => {
           try {
-            const r = await svc().framesFile({ since: sinceRef.current })
+            const sinceBefore = sinceRef.current
+            const r = await svc().framesFile({ since: sinceBefore })
             if (r && Array.isArray(r.frames)) {
               for (const f of r.frames) {
                 sinceRef.current = (f.seq || 0) + 1
@@ -242,7 +244,17 @@ function ensureStyle() {
               const slides = framesBySlideRef.current.size
               if (slides > 0) setTotalSlides(slides)
               if (r.frames.length > 0) { draw(); setThumbRev((v) => v + 1) }
-              if (r.building) { setStatus(t.building + sinceRef.current + t.elems); setStatusKind('building') }
+              if (r.building) {
+                // A fresh build begins when the since cursor is back at 0 — slide
+                // the panel out once per build; ✕/mask mark it dismissed so it
+                // stays shut for the rest of this build.
+                if (sinceBefore === 0) {
+                  autoOpenedRef.current = false
+                  setOpen(true)
+                  autoOpenedRef.current = true
+                }
+                setStatus(t.building + sinceRef.current + t.elems); setStatusKind('building')
+              }
               else if (r.result) { if (r.result.ok) { setStatus(t.done + (r.result.summary || '')); setStatusKind('done') } else { setStatus(t.fail); setStatusKind('fail') } }
               else if (sinceRef.current === 0) { setStatus(t.waitBuild); setStatusKind('wait') }
               else { setStatus(t.loaded + sinceRef.current + t.elems); setStatusKind('loaded') }
@@ -347,41 +359,35 @@ function ensureStyle() {
       const DEFAULT_SWATCHES = ['#1D4ED8', '#0F172A', '#1B3A5C', '#0052D9', '#C0392B', '#0D9488']
       const swatches = pal.swatches && pal.swatches.length ? pal.swatches : DEFAULT_SWATCHES
 
-      const C = { bg: 'var(--dsw-alias-bg-base)', section: 'var(--dsw-alias-bg-layer-1)', layer2: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderStrong: 'var(--dsw-alias-border-l2)', primary: 'var(--dsw-alias-brand-primary)', text: 'var(--dsw-alias-label-primary)', sub: 'var(--dsw-alias-label-secondary)', input: 'var(--dsw-alias-bg-layer-2)', warn: 'var(--dsw-alias-state-warn-primary)', err: 'var(--dsw-alias-state-error-primary)' }
+      const C = { bg: 'var(--dsw-alias-bg-base)', section: 'var(--dsw-alias-bg-layer-2)', layer2: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderStrong: 'var(--dsw-alias-border-l2)', primary: 'var(--dsw-alias-brand-primary)', text: 'var(--dsw-alias-label-primary)', sub: 'var(--dsw-alias-label-secondary)', input: 'var(--dsw-alias-bg-layer-3)', warn: 'var(--dsw-alias-state-warn-primary)', err: 'var(--dsw-alias-state-error-primary)' }
       const inputStyle = { background: C.input, color: C.text, border: C.border, borderRadius: 8, padding: '7px 8px', fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box' }
       const colorInputStyle = { width: 30, height: 30, border: C.border, borderRadius: 8, background: 'transparent', cursor: 'pointer', padding: 0, flex: '0 0 auto' }
-      const btnPrimary = { background: C.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', fontSize: 12 }
+      const btnPrimary = { background: C.primary, color: 'var(--dsw-alias-label-primary-foreground)', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', fontSize: 12 }
       const btn2 = { background: C.layer2, color: C.text, border: C.border, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }
       const sectTitle = { fontSize: 11, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.5px' }
 
       const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
       const dotColor = { wait: 'var(--dsw-alias-label-secondary)', building: 'var(--dsw-alias-state-warn-primary)', done: 'var(--dsw-alias-state-success-primary)', fail: 'var(--dsw-alias-state-error-primary)', loaded: 'var(--dsw-alias-brand-primary)' }[statusKind] || 'var(--dsw-alias-label-secondary)'
-      const wide = !(props && props.wide === false)
-      const footBtn = React.createElement('button', {
-        className: 'dsr-foot',
-        onClick: () => setOpen(true),
+      const closePanel = () => { autoOpenedRef.current = true; setOpen(false) }
+      const entryBtn = React.createElement('button', {
+        className: 'dsr-entry',
+        type: 'button',
+        onClick: () => { if (open) autoOpenedRef.current = true; setOpen(!open) },
         title: t.title,
-        style: { display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-          border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)',
-          borderRadius: 8, padding: wide ? '6px 12px' : '6px 9px', fontFamily: 'inherit', fontSize: 12,
-          fontWeight: 600, whiteSpace: 'nowrap', userSelect: 'none' },
-      },
-        React.createElement('span', { style: { fontSize: 13, lineHeight: 1 } }, '▦'),
-        wide ? React.createElement('span', null, t.foot) : null,
-      )
-      if (!open) return footBtn
+        'aria-label': t.title,
+      }, '▦')
+      if (!open) return entryBtn
       const maskEl = React.createElement('div', {
         className: 'dsr-mask',
-        onClick: () => setOpen(false),
-        style: { position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.35)' },
+        onClick: closePanel,
+        style: { position: 'fixed', inset: 0, zIndex: 9999, background: 'color-mix(in srgb, var(--dsw-alias-bg-overlay) 50%, transparent)' },
       })
       const winEl = React.createElement('div', {
-        ref: winRef,
         className: 'dsr-win',
         style: { position: 'fixed', zIndex: 10000,
           right: 0, top: 0, height: '100vh', width: 480, maxWidth: '92vw',
-          display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)',
+          display: 'flex', flexDirection: 'column', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)',
           borderLeft: '1px solid var(--dsw-alias-border-l2)', boxShadow: '-16px 0 48px rgba(0,0,0,0.45)',
           overflow: 'hidden', fontFamily: 'inherit', fontSize: 13 },
       },
@@ -399,13 +405,13 @@ function ensureStyle() {
           React.createElement('div', { style: { flex: 1, minWidth: 8 } }),
           React.createElement('button', { onClick: () => setLang(lang === 'zh' ? 'en' : 'zh'), className: 'dsr-btn2', style: { ...btn2, padding: '6px 10px', fontSize: 11 } }, lang === 'zh' ? 'EN' : '中文'),
           React.createElement('button', { onClick: rebuildFromDeck, className: 'dsr-primary', style: { ...btnPrimary, padding: '6px 12px' } }, '⟳ ' + t.rebuild),
-          React.createElement('button', { onClick: () => setOpen(false), className: 'dsr-btn2', style: { ...btn2, padding: '6px 9px' } }, '✕'),
+          React.createElement('button', { onClick: closePanel, className: 'dsr-btn2', style: { ...btn2, padding: '6px 9px' } }, '✕'),
         ),
         React.createElement('div', { style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 } },
           React.createElement('div', { style: { background: C.section, border: C.border, borderRadius: 12, padding: 10, flex: '0 0 auto' } },
             React.createElement('canvas', { ref: canvasRef, width: 960, height: 540,
               onMouseDown: onMouseDown, onMouseMove: onMouseMove, onMouseUp: onMouseUp, title: t.hint,
-              style: { width: '100%', height: 'auto', background: '#fff', borderRadius: 8, display: 'block', cursor: 'crosshair', border: '1px solid rgba(90,100,130,0.35)' } }),
+              style: { width: '100%', height: 'auto', background: '#fff', borderRadius: 8, display: 'block', cursor: 'crosshair', border: '1px solid var(--dsw-alias-border-l1)' } }),
           ),
           React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' } },
             React.createElement('button', { onClick: () => goto(-1), className: 'dsr-btn2', style: { ...btn2, padding: '6px 10px' } }, '◀'),
@@ -462,7 +468,7 @@ function ensureStyle() {
               React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' } },
                 React.createElement('span', { style: { fontSize: 11, color: C.sub } }, t.quick),
                 swatches.map((c) => React.createElement('button', { key: c, onClick: () => savePal({ ...pal, accent_hex: c }), title: c, className: 'dsr-sw',
-                  style: { width: 22, height: 22, borderRadius: 6, border: pal.accent_hex === c ? '2px solid #fff' : '1px solid rgba(90,100,130,0.5)', background: c, cursor: 'pointer', padding: 0 } })),
+                  style: { width: 22, height: 22, borderRadius: 6, border: pal.accent_hex === c ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l2)', background: c, cursor: 'pointer', padding: 0 } })),
                 React.createElement('button', { onClick: () => { const c = prompt('hex e.g. #8C97A3'); if (c && /^#[0-9a-fA-F]{6}$/.test(c)) savePal({ ...pal, swatches: [...swatches, c], accent_hex: pal.accent_hex || c }) }, className: 'dsr-btn2', style: { ...btn2, padding: '6px 10px' } }, t.custom),
               ),
             ),
@@ -477,12 +483,30 @@ function ensureStyle() {
           ),
         ),
       )
-      return React.createElement(React.Fragment, null, footBtn, maskEl, winEl)
+      return React.createElement(React.Fragment, null, entryBtn, maskEl, winEl)
     }
 
-    slots.inject('conversation.composer.dock', () => slots.register(
-      { name: 'conversation.composer.dock', id: 'ppt-reflex', order: 5, label: 'PPT 制作' },
-      () => React.createElement(Panel, null),
+    // The client bundle is loaded globally (window.__DSH_BOOT__), so the entry
+    // button would otherwise appear in every preset. The session summary's
+    // agentPreset tells us which preset composed this session: render nothing
+    // unless it is ppt-maker.
+    function Gate(props) {
+      const useSessions = props && props.useSessions
+      const sessionId = props && (props.sessionId || (props.session && props.session.sessionId))
+      const agentPreset = useSessions
+        ? useSessions((state) => {
+            if (!state || !state.byId || !sessionId) return undefined
+            const summary = state.byId[sessionId]
+            return summary ? summary.agentPreset : undefined
+          })
+        : undefined
+      if (agentPreset !== 'ppt-maker') return null
+      return React.createElement(Panel, props)
+    }
+
+    slots.inject('conversation.input.left', () => slots.register(
+      { name: 'conversation.input.left', id: 'ppt-reflex', order: 10, label: 'PPT 预览' },
+      (props) => React.createElement(Gate, props),
     ))
   },
 };

@@ -1,0 +1,80 @@
+# The `ppt-maker` agent preset: a minimal coding-agent base plus the
+# dsh-slide-reflex gateway, so the live PPT preview panel and its build/feedback
+# loop only exist for sessions composed from this preset.
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      You are a PPT-making assistant. Work the pipeline: ask a short
+      questionnaire, declare a slide deck (template, style, and slides with
+      archetypes, regions, elements, arrows), then build it through the
+      slideReflex remote so the right-side preview panel streams frames live.
+      Read feedback from the panel and refine the deck, then rebuild.
+    complete: true
+    includeRuntimeContext: false
+
+# The PTY registry is an agent-owned service, so it lives in an entry-local
+# realm. The backend still consumes the host sandbox policy and subprocess
+# implementation, while the tool registers into this agent's scoped catalog.
+- id: persistent-shell
+  name: cordis:group
+  group: true
+  isolate:
+    terminals: true
+  config:
+    - id: pty
+      name: '@deepseek-ai/dsh-terminal'
+
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      config:
+        timeoutMs: 300000
+
+    - id: persistent-bash
+      name: '@deepseek-ai/dsh-tool-bash-persistent'
+      config:
+        timeoutMs: 300000
+        description: |-
+          Run commands in a bash shell
+          * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+          * You don't have access to the internet via this tool.
+          * You do have access to a mirror of common linux and python packages via apt and pip.
+          * State is persistent across command calls and discussions with the user.
+          * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+          * Please avoid commands that may produce a very large amount of output.
+          * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
+
+# The bare local filesystem shadows the host's sandboxed provider only for this
+# preset. The editor shares that realm and requires absolute paths.
+- id: filesystem
+  name: cordis:group
+  group: true
+  isolate:
+    fs: true
+  config:
+    - id: fs-local
+      name: '@deepseek-ai/dsh-fs-local'
+      config:
+        cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+    - id: str-replace-editor
+      name: '@deepseek-ai/dsh-tool-str-replace-editor'
+      config:
+        maxOutputChars: 16000
+
+# dsh-slide-reflex publishes the `slideReflex` Typert remote service, so the
+# skill rule requires it behind an entry-local isolate realm (a loose service
+# publisher is rejected at mount). RISK: the Typert gateway that bridges the
+# client/API RPC is a host-plane, cross-session consumer — if it cannot resolve
+# the isolated service, the client preview will fail. Validate with
+# standingKeyFor('ppt-maker') and a real session; if the bridge breaks, keep
+# this row in the host composition and scope the panel via the client Gate only.
+- id: slide-reflex
+  name: cordis:group
+  group: true
+  isolate:
+    slideReflex: true
+  config:
+    - id: dsh-slide-reflex
+      name: dsh-slide-reflex
