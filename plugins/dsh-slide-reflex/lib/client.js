@@ -156,7 +156,7 @@ const UI_CSS = [
   '.dsr-win { animation: dsrSlideIn 260ms ease; }',
   '.dsr-mask { animation: dsrFadeIn 200ms ease; }',
   '.dsr-dot-pulse { animation: dsrPulse 1.1s ease-in-out infinite; }',
-  '.dsr-entry { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 14px; line-height: 1; padding: 0; flex: 0 0 auto; transition: background .15s ease, color .15s ease; }',
+  '.dsr-entry { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; height: 28px; padding: 0 12px; border-radius: 999px; border: 1.5px solid var(--dsw-alias-border-strong); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; line-height: 1; flex: 0 0 auto; transition: background .15s ease, border-color .15s ease, color .15s ease; box-sizing: border-box; }',
   '.dsr-entry:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }',
   '.dsr-primary { transition: filter .15s ease; }',
   '.dsr-primary:hover { filter: brightness(1.1) !important; }',
@@ -193,7 +193,7 @@ function ensureStyle() {
     }
 
     function Panel(props) {
-      const [open, setOpen] = React.useState(false)
+      const [open, setOpen] = React.useState(true) // Gate 放行 = 已选 ppt-maker agent 模式 → 弹出预览窗口；用户 ✕ 后由椭圆入口重开
       const [lang, setLang] = React.useState(() => {
         try { return String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en' } catch { return 'zh' }
       })
@@ -388,7 +388,7 @@ function ensureStyle() {
         onClick: () => { if (open) autoOpenedRef.current = true; setOpen(!open) },
         title: t.title,
         'aria-label': t.title,
-      }, '▦')
+      }, 'PPT')
       if (!open) return entryBtn
       const maskEl = React.createElement('div', {
         className: 'dsr-mask',

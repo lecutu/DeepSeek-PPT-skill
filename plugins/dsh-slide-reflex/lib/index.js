@@ -2,9 +2,12 @@
 // ppt-reflex python runner and the Client preview panel. Decorators are
 // expanded by hand (the runtime does not enable decorator syntax); this
 // mirrors exactly what the typert generator emits.
-import { readFileSync, writeFileSync, renameSync, unlinkSync, realpathSync, existsSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, unlinkSync, realpathSync, existsSync, statSync, watchFile, unwatchFile } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { isAbsolute, resolve, dirname, basename, sep } from 'node:path'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import z from '@deepseek-ai/schemastery'
 
 function __runInitializers(thisArg, initializers, value) {
   for (let i = 0; i < initializers.length; i++) {
@@ -59,6 +62,8 @@ const DEFAULTS = {
 
 const BUILD_TIMEOUT_MS = 120000
 const CONFIG_FILE_KEYS = ['framesFile', 'deckFile', 'feedbackFile', 'selectionFile', 'paletteFile']
+const WATCH_POLL_MS = 800
+const WATCH_DEBOUNCE_MS = 400
 
 function readJson(path, fallback = null) {
   try { return JSON.parse(readFileSync(path, 'utf-8')) } catch { return fallback }
@@ -139,6 +144,103 @@ function sanitizeConfig(raw) {
   return out
 }
 
+function hashText(text) {
+  return createHash('sha1').update(String(text)).digest('hex')
+}
+
+const KIND_LABELS = { card: '卡片', kpi: 'kpi 布局', quote: '引用', title: '标题', subtitle: '副标题', bullet: '要点', text: '文本', box: '元素' }
+const PARAM_LABELS = { density: '密度', columns: '列数' }
+
+function kindOf(elem) {
+  if (!elem || typeof elem !== 'object') return 'unknown'
+  return elem.recipe || elem.type || 'unknown'
+}
+
+function kindLabel(k) {
+  return KIND_LABELS[k] || k
+}
+
+// One-sentence Chinese summary of what changed between two decks. Compares
+// slide count, per-slide archetype, per-element type/recipe, and top-level
+// params (density/columns). Falls back to a fixed string when nothing moved.
+function summarizeDeckChange(prev, cur) {
+  const curSlides = (cur && Array.isArray(cur.slides)) ? cur.slides : []
+  if (!prev) return curSlides.length ? '本次：初始构建 ' + curSlides.length + ' 页' : '本次：重新构建'
+  const prevSlides = (prev && Array.isArray(prev.slides)) ? prev.slides : []
+  const parts = []
+  if (prevSlides.length !== curSlides.length) {
+    parts.push('页面数从 ' + prevSlides.length + ' 页变为 ' + curSlides.length + ' 页')
+  }
+  const prevArch = prev.archetype
+  const curArch = cur.archetype
+  if (prevArch !== curArch) {
+    parts.push('整体版式由「' + (prevArch || '默认') + '」换为「' + (curArch || '默认') + '」')
+  }
+  const maxLen = Math.min(prevSlides.length, curSlides.length)
+  for (let i = 0; i < maxLen; i++) {
+    const ps = prevSlides[i] || {}
+    const cs = curSlides[i] || {}
+    if (ps.archetype !== cs.archetype && cs.archetype) {
+      parts.push('第 ' + (i + 1) + ' 页版式由「' + (ps.archetype || '默认') + '」换为「' + cs.archetype + '」')
+    }
+    const pe = ps.elements || []
+    const ce = cs.elements || []
+    const prevMap = new Map(pe.map((e) => [String(e && e.id), e]))
+    const curMap = new Map(ce.map((e) => [String(e && e.id), e]))
+    const byPair = new Map()
+    for (const [id, curE] of curMap) {
+      const prevE = prevMap.get(id)
+      if (!prevE) continue
+      const a = kindOf(prevE)
+      const b = kindOf(curE)
+      if (a !== b) byPair.set(a + '\u0000' + b, (byPair.get(a + '\u0000' + b) || 0) + 1)
+    }
+    if (byPair.size) {
+      for (const [pair, n] of byPair) {
+        const sepIdx = pair.indexOf('\u0000')
+        const from = pair.slice(0, sepIdx)
+        const to = pair.slice(sepIdx + 1)
+        parts.push('第 ' + (i + 1) + ' 页 ' + n + ' 个' + kindLabel(from) + '换为 ' + kindLabel(to))
+      }
+    }
+  }
+  const prevParams = prev.params || {}
+  const curParams = cur.params || {}
+  for (const k of Object.keys(PARAM_LABELS)) {
+    // Report added or changed params (cur has the key and its value moved).
+    if (curParams[k] !== undefined && String(prevParams[k]) !== String(curParams[k])) {
+      parts.push(PARAM_LABELS[k] + '调为 ' + curParams[k])
+    }
+  }
+  if (parts.length === 0) return '本次：结构不变，重新构建'
+  return '本次：' + parts.slice(0, 3).join('，') + (parts.length > 3 ? '，等' : '')
+}
+
+// Index of a deck: element id → truncated text and slide index → title, used
+// to inline context into feedback / selection files (agent-facing problem #5).
+function buildDeckContext(deck) {
+  const byId = new Map()
+  const titles = new Map()
+  ;(deck.slides || []).forEach((s, i) => {
+    titles.set(i, s && s.title ? String(s.title) : '')
+    for (const e of (s && s.elements) || []) {
+      if (e && e.id !== undefined && e.id !== null) byId.set(String(e.id), { elem: e, slide: i })
+    }
+  })
+  return {
+    elemText(id) {
+      const rec = (id === undefined || id === null) ? undefined : byId.get(String(id))
+      if (!rec) return ''
+      const raw = rec.elem.text !== undefined ? rec.elem.text : (rec.elem.content !== undefined ? rec.elem.content : '')
+      const flat = String(raw).replace(/\s+/g, ' ').trim()
+      return flat.length > 80 ? flat.slice(0, 80) + '…' : flat
+    },
+    slideTitle(idx) {
+      return (typeof idx === 'number' && titles.has(idx)) ? titles.get(idx) : ''
+    },
+  }
+}
+
 let SlideReflexGateway = (() => {
   const _classSuper = TypertRemoteService
   const _instanceExtraInitializers = []
@@ -174,6 +276,151 @@ let SlideReflexGateway = (() => {
       this.lastResult = null
       this.epoch = 0
       this.framesMaxSeen = -1
+      this.lastDeckSnapshot = null
+      this._watchState = null
+      this._watchStop = null
+      this._registerDeckWatcher()
+    }
+
+    _logInfo(...args) {
+      const l = this.ctx && this.ctx.logger
+      if (l && typeof l.info === 'function') l.info(...args)
+      else console.log('[dsh-slide-reflex]', ...args)
+    }
+
+    _logWarn(...args) {
+      const l = this.ctx && this.ctx.logger
+      if (l && typeof l.warn === 'function') l.warn(...args)
+      else console.warn('[dsh-slide-reflex]', ...args)
+    }
+
+    // Watcher (problem #1): the agent writes only deckFile and the host
+    // auto-triggers the build. fs.watchFile polls stat (800ms) so it also
+    // picks up atomic rename writes on Windows and waits for the file to be
+    // created when it does not exist yet. Content hash guards against
+    // touch-only mtime changes; a 400ms debounce merges consecutive writes.
+    _registerDeckWatcher() {
+      const file = this.config.deckFile
+      const st = { lastHash: null, lastMtime: 0, baselineDone: false, timer: null, disposed: false }
+      this._watchState = st
+      const readSnap = () => {
+        try {
+          const s = statSync(file)
+          if (!s.isFile()) return null
+          return { mtimeMs: s.mtimeMs, hash: hashText(readFileSync(file, 'utf-8')) }
+        } catch { return null }
+      }
+      // File already present at registration → first watch event is a no-op
+      // baseline, so plugin load never triggers a spurious rebuild.
+      const initial = readSnap()
+      if (initial) {
+        st.lastHash = initial.hash
+        st.lastMtime = initial.mtimeMs
+        st.baselineDone = true
+      }
+      const onWatch = () => {
+        if (st.disposed) return
+        const snap = readSnap()
+        if (!snap) return // file missing (or not yet created) — keep polling
+        if (snap.mtimeMs === st.lastMtime && snap.hash === st.lastHash) return
+        const changed = snap.hash !== st.lastHash
+        st.lastMtime = snap.mtimeMs
+        st.lastHash = snap.hash
+        if (!st.baselineDone) {
+          st.baselineDone = true
+          // First appearance after a file-less start = creation → build.
+          if (changed) this._scheduleWatchBuild()
+          return
+        }
+        if (changed) this._scheduleWatchBuild()
+      }
+      try {
+        watchFile(file, { interval: WATCH_POLL_MS, persistent: false }, onWatch)
+      } catch (e) {
+        this._logWarn('watch: cannot register deck watcher: ' + String(e && e.message ? e.message : e))
+        return
+      }
+      const stop = () => {
+        st.disposed = true
+        if (st.timer) { clearTimeout(st.timer); st.timer = null }
+        try { unwatchFile(file, onWatch) } catch { /* already stopped */ }
+      }
+      this._watchStop = stop
+      try {
+        if (this.ctx && typeof this.ctx.effect === 'function') this.ctx.effect(() => stop, 'dsh-slide-reflex: deck watcher')
+      } catch { /* effect unavailable — persistent:false keeps it from holding the process */ }
+    }
+
+    _scheduleWatchBuild() {
+      const st = this._watchState
+      if (!st || st.disposed) return
+      if (st.timer) clearTimeout(st.timer)
+      st.timer = setTimeout(() => {
+        st.timer = null
+        this._runWatchBuild()
+      }, WATCH_DEBOUNCE_MS)
+      if (typeof st.timer.unref === 'function') st.timer.unref()
+    }
+
+    async _runWatchBuild() {
+      if (this.building) {
+        this._logWarn('watch: build already running, skipping this change')
+        return
+      }
+      const deck = readJson(this.config.deckFile)
+      if (!deck || !Array.isArray(deck.slides)) {
+        this._logWarn('watch: deck file unreadable or empty, skipping')
+        return
+      }
+      this._logInfo('watch: deck changed → build')
+      try {
+        const res = await this.build(deck)
+        if (res && res.hostError === 'busy') this._logWarn('watch: build already running, skipped')
+        else this._logInfo('watch: build ' + (res && res.ok ? 'ok' : 'failed') + (res && res.hostError ? ' — ' + res.hostError : ''))
+      } catch (e) {
+        this._logWarn('watch: build threw: ' + String(e && e.message ? e.message : e))
+      }
+    }
+
+    // applyFeedbackBuild writes deckFile itself right before building; record
+    // the just-written content as the watcher's known state so the self-write
+    // never re-triggers a second build.
+    _markWatchSelfWrite() {
+      const st = this._watchState
+      if (!st) return
+      try {
+        const s = statSync(this.config.deckFile)
+        st.lastMtime = s.mtimeMs
+        st.lastHash = hashText(readFileSync(this.config.deckFile, 'utf-8'))
+        st.baselineDone = true
+      } catch { /* deck file not on disk yet */ }
+    }
+
+    // Summary (problem #6): diff the just-built deck against the previous
+    // snapshot and expose a one-line Chinese summary on the runner result.
+    _afterBuild(curDeck) {
+      const summary = summarizeDeckChange(this.lastDeckSnapshot, curDeck)
+      if (this.lastResult) this.lastResult.summary = summary
+      this.lastDeckSnapshot = JSON.parse(JSON.stringify(curDeck))
+    }
+
+    // Inline deck context into feedback requests (problem #5).
+    _inlineFeedbackContext(requests) {
+      const deck = readJson(this.config.deckFile)
+      const ctx = deck && Array.isArray(deck.slides) ? buildDeckContext(deck) : null
+      if (!ctx) return requests
+      return requests.map((rq) => {
+        const out = Object.assign({}, rq)
+        if (rq.type === 'question') {
+          out.elem_text = ctx.elemText(rq.elem_id)
+          out.slide_title = ctx.slideTitle(rq.slide)
+        } else if (rq.type === 'area') {
+          const ids = Array.isArray(rq.elems) ? rq.elems : []
+          out.region_elems = ids.map((id) => ({ id, text: ctx.elemText(id) }))
+          out.slide_title = ctx.slideTitle(rq.slide)
+        }
+        return out
+      })
     }
 
     parseLine(line) {
@@ -200,14 +447,9 @@ let SlideReflexGateway = (() => {
       req.frames_out = this.config.framesFile
       const sv = req.survey || {}
       delete req.survey
-      const palette = readJson(this.config.paletteFile)
-      if (palette && palette.accent_hex) sv.accent_hex = sv.accent_hex || palette.accent_hex
-      if (palette && palette.bg_hex) sv.bg_hex = sv.bg_hex || palette.bg_hex
+      // Palette merge is handled by the runner (reads _palette_auto.json);
+      // the host no longer injects accent_hex/bg_hex into overrides.
       if (!req.style && sv.style) req.style = sv.style
-      const ov = {}
-      if (sv.accent_hex) ov.accent_hex = sv.accent_hex
-      if (sv.bg_hex) ov.bg_hex = sv.bg_hex
-      if (Object.keys(ov).length) req.overrides = Object.assign({}, req.overrides || {}, ov)
       let lineBuf = ''
       let stderrTail = ''
       let stdoutLossy = false
@@ -242,7 +484,7 @@ let SlideReflexGateway = (() => {
           }
           const exited = await Promise.race([
             proc.done.then(() => true),
-            this.ctx.timeout(50).then(() => false),
+            new Promise((r) => setTimeout(r, 50)).then(() => false),
           ])
           if (exited) {
             if (proc.collected.stdout) {
@@ -282,6 +524,7 @@ let SlideReflexGateway = (() => {
         return { ok: false, hostError: String(e && e.message ? e.message : e), result: null, nFrames: this.frames.length, stderrTail }
       } finally {
         clearTimeout(timer)
+        this._afterBuild(req)
         this.building = false
       }
     }
@@ -330,7 +573,13 @@ let SlideReflexGateway = (() => {
       }
       this.framesMaxSeen = Math.max(this.framesMaxSeen, fileMax)
       if (from > fileMax + 1) from = fileMax + 1
-      return { ok: true, hostError: null, frames: all.slice(from), building: result === null && all.length > 0, result, epoch }
+      // The runner result on disk has no summary; overlay the host-computed one
+      // so the panel's done-status can render it (client already reads it).
+      let resultOut = result
+      if (result && this.lastResult && typeof this.lastResult.summary === 'string') {
+        resultOut = Object.assign({}, result, { summary: this.lastResult.summary })
+      }
+      return { ok: true, hostError: null, frames: all.slice(from), building: result === null && all.length > 0, result: resultOut, epoch }
     }
 
     async applyFeedbackBuild(request) {
@@ -349,6 +598,7 @@ let SlideReflexGateway = (() => {
         }
       }
       writeJson(this.config.deckFile, deck)
+      this._markWatchSelfWrite()
       writeJson(this.config.feedbackFile, { requests, deck })
       return this.build(Object.assign({}, deck, { frames_out: this.config.framesFile, strict_tokens: false }))
     }
@@ -363,12 +613,22 @@ let SlideReflexGateway = (() => {
     }
 
     async saveFeedback(request) {
-      writeJson(this.config.feedbackFile, { requests: (request && request.requests) || [] })
+      const raw = (request && request.requests) || []
+      const requests = Array.isArray(raw) ? this._inlineFeedbackContext(raw) : raw
+      writeJson(this.config.feedbackFile, { requests })
       return { ok: true, hostError: null, result: null }
     }
 
     async saveSelection(request) {
-      writeJson(this.config.selectionFile, request || {})
+      const req = (request && typeof request === 'object' && !Array.isArray(request)) ? Object.assign({}, request) : {}
+      const deck = readJson(this.config.deckFile)
+      const ctx = deck && Array.isArray(deck.slides) ? buildDeckContext(deck) : null
+      if (ctx) {
+        if (req.elem_id !== undefined && req.elem_id !== null) req.elem_text = ctx.elemText(req.elem_id)
+        if (Array.isArray(req.elems)) req.region_elems = req.elems.map((id) => ({ id, text: ctx.elemText(id) }))
+        if (req.slide !== undefined && req.slide !== null) req.slide_title = ctx.slideTitle(req.slide)
+      }
+      writeJson(this.config.selectionFile, req)
       return { ok: true, hostError: null, result: null }
     }
 
@@ -382,4 +642,177 @@ let SlideReflexGateway = (() => {
   }
 })()
 
-export { SlideReflexGateway, SlideReflexGateway as default }
+// ---- Agent tool (ppt_build) ----
+// The loader unwraps the module's default export as the plugin entry: an
+// { apply } object here (dsh-tool-bash-persistent convention) replaces the
+// old loader auto-instantiation of the default-exported Service class, so
+// apply() re-registers the gateway the same way (`new SlideReflexGateway(ctx)`
+// provides ctx.slideReflex + the deck watcher) and adds the agent-facing tool.
+
+function readFramesFile(path) {
+  const frames = []
+  try {
+    for (const line of readFileSync(path, 'utf-8').split('\n')) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        const obj = JSON.parse(t)
+        if (obj && obj.frame) { obj.frame.seq = frames.length; frames.push(obj.frame) }
+      } catch { /* partial */ }
+    }
+  } catch { /* no file yet */ }
+  return frames
+}
+
+// Geometry diagnostics over the deck structure plus the last rendered frames:
+// per-slide element inventory, out-of-bounds frames, and pairwise overlaps.
+function inspectDeck(deck, frames, slide, elemIds) {
+  const slides = (deck && Array.isArray(deck.slides)) ? deck.slides : []
+  const pageW = (deck && typeof deck.page_w === 'number') ? deck.page_w : 960
+  const pageH = (deck && typeof deck.page_h === 'number') ? deck.page_h : 540
+  const wantSlide = (typeof slide === 'number') ? slide : null
+  const only = (elemIds && Array.isArray(elemIds) && elemIds.length) ? new Set(elemIds.map(String)) : null
+  const issues = []
+  const perSlide = []
+  for (let i = 0; i < slides.length; i++) {
+    if (wantSlide !== null && i !== wantSlide) continue
+    const s = slides[i] || {}
+    const elems = Array.isArray(s.elements) ? s.elements : []
+    const rows = []
+    for (const e of elems) {
+      if (only && !only.has(String(e.id))) continue
+      rows.push({
+        id: e.id,
+        type: e.type || null,
+        recipe: e.recipe || null,
+        text: e.text !== undefined ? String(e.text).replace(/\s+/g, ' ').trim().slice(0, 80) : null,
+      })
+    }
+    const geom = []
+    if (Array.isArray(frames)) {
+      const seen = new Map()
+      for (const f of frames) {
+        if (f.slide !== i || !f.elem_id) continue
+        if (only && !only.has(String(f.elem_id))) continue
+        const prev = seen.get(f.elem_id)
+        if (!prev || (f.seq || 0) > (prev.seq || 0)) seen.set(f.elem_id, f)
+      }
+      for (const f of seen.values()) {
+        const x = f.x || 0, y = f.y || 0, w = f.w || 0, h = f.h || 0
+        geom.push({ elem_id: f.elem_id, x, y, w, h, text: f.text ? String(f.text).replace(/\s+/g, ' ').trim().slice(0, 60) : null })
+        if (x < 0 || y < 0 || x + w > pageW || y + h > pageH) {
+          issues.push('第 ' + (i + 1) + ' 页元素 ' + f.elem_id + ' 超出页面边界 (x=' + x + ',y=' + y + ',w=' + w + ',h=' + h + ', 页 ' + pageW + '×' + pageH + ')')
+        }
+      }
+      for (let a = 0; a < geom.length; a++) {
+        for (let b = a + 1; b < geom.length; b++) {
+          const A = geom[a], B = geom[b]
+          if (A.x < B.x + B.w && A.x + A.w > B.x && A.y < B.y + B.h && A.y + A.h > B.y) {
+            issues.push('第 ' + (i + 1) + ' 页元素 ' + A.elem_id + ' 与 ' + B.elem_id + ' 重叠')
+          }
+        }
+      }
+    }
+    perSlide.push({ slide: i, archetype: s.archetype || null, title: s.title || null, elements: rows, geometry: geom })
+  }
+  return { page: { width: pageW, height: pageH }, slide_count: slides.length, slides: perSlide, issues: issues.slice(0, 30), issue_count: issues.length }
+}
+
+function renderToolResult(value) {
+  const out = []
+  out.push(value && value.ok ? 'ok: true' : 'ok: false')
+  if (value && value.hostError) out.push('hostError: ' + String(value.hostError))
+  if (value && value.result !== undefined && value.result !== null) {
+    const json = JSON.stringify(value.result, null, 2)
+    out.push('result: ' + (json.length > 6000 ? json.slice(0, 6000) + '\n…(truncated)' : json))
+  }
+  if (value && Array.isArray(value.rendered_slides)) {
+    out.push('rendered_slides: ' + value.rendered_slides.map((s) => (s && s.file) || s).join(', '))
+  }
+  if (value && value.nFrames !== undefined) out.push('nFrames: ' + value.nFrames)
+  return out.join('\n')
+}
+
+const name = 'dsh-slide-reflex'
+const inject = ['tools']
+const Config = z.object({})
+
+function registerPptBuildTool(ctx, gw) {
+  ctx.tools.register(defineTool({
+    name: 'ppt_build',
+    description: '构建 / 渲染 / 检查 PPT deck（Build, render, or inspect the PPT deck）。仅 PPT 制作会话使用：只供 ppt-maker 预设会话中的 Agent 调用，其他会话请勿使用。' +
+      'build：把 deck 交给引擎生成帧，不传 deck 则读取 _deck_auto.json（等价于 Agent 只写 deck 文件自动构建）；' +
+      'renderSlides：渲染每页 PNG 到 _render_vision；' +
+      'inspect：按 slide / elem_ids 对 deck 与上次渲染帧做几何诊断（越界、重叠、文本缺失）。' +
+      '始终返回 { ok, result, hostError }。',
+    parameters: {
+      action: {
+        type: 'string',
+        required: true,
+        enum: ['build', 'renderSlides', 'inspect'],
+        description: '要执行的动作：build（构建帧）/ renderSlides（渲染 PNG）/ inspect（几何诊断）',
+      },
+      deck: {
+        type: 'object',
+        additionalProperties: true,
+        description: '完整 deck JSON（可选）；缺省读取当前 _deck_auto.json',
+      },
+      slide: {
+        type: 'integer',
+        description: '目标页索引（0 起，可选；inspect 用，缺省检查全部页）',
+      },
+      elem_ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '只诊断这些元素 id（可选；inspect 用）',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          ok: { type: 'boolean' },
+          result: { type: 'json' },
+          hostError: { oneOf: [{ type: 'string' }, { type: 'null' }] },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderToolResult(value) }],
+    },
+    async execute(args) {
+      try {
+        const deck = (args && typeof args.deck === 'object' && args.deck !== null) ? args.deck : readJson(gw.config.deckFile)
+        if (args.action === 'build') {
+          if (!deck) return { ok: false, result: null, hostError: 'no deck available — let the agent generate one in chat first' }
+          const res = await gw.build(deck)
+          return { ok: !!(res && res.ok), result: (res && res.result) || null, hostError: (res && res.hostError) || null, nFrames: (res && res.nFrames) || 0 }
+        }
+        if (args.action === 'renderSlides') {
+          if (!deck) return { ok: false, result: null, hostError: 'no deck available — let the agent generate one in chat first' }
+          const res = await gw.renderSlides({ deck })
+          return { ok: !!(res && res.ok), result: (res && res.result) || null, hostError: (res && res.hostError) || null, rendered_slides: (res && res.rendered_slides) || [] }
+        }
+        if (args.action === 'inspect') {
+          const frames = readFramesFile(gw.config.framesFile)
+          return { ok: true, result: inspectDeck(deck, frames, args && args.slide, args && args.elem_ids), hostError: null }
+        }
+        return { ok: false, result: null, hostError: 'ppt_build: unknown action "' + String(args && args.action) + '"' }
+      } catch (e) {
+        return { ok: false, result: null, hostError: String(e && e.message ? e.message : e) }
+      }
+    },
+  }))
+}
+
+function apply(ctx) {
+  // Re-register the gateway the way the loader used to (auto-instantiation of
+  // the default-exported Service class): provides ctx.slideReflex + watcher.
+  // The instance is captured once per apply and reused by the tool; do not
+  // read ctx.slideReflex here — on a live plugin fiber an un-injected read
+  // throws before the service is provided.
+  const gw = new SlideReflexGateway(ctx)
+  registerPptBuildTool(ctx, gw)
+}
+
+export { SlideReflexGateway, Config, apply, inject, name }
+export default { Config, apply, inject, name }
