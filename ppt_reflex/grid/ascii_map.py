@@ -63,12 +63,31 @@ def _render(g, title: str) -> str:
     return "\n".join(lines)
 
 
-def render_slide_ascii(plan, canvas=None, slide_index: int = 0) -> dict:
+def render_slide_ascii(plan, canvas=None, slide_index: int = 0,
+                       diagnostics: list[dict] | None = None) -> dict:
     """Render one solved slide's three-tier ASCII feedback.
 
-    Returns {"L0": str, "L1": str, "L2": [dict, ...]} — L2 is the numeric
-    text-precision table (no ASCII).
+    Returns {"L0": str, "L1": str, "L2": [dict, ...], "signals": [...], "violations": [...]}.
+    L2 is the numeric text-precision table (no ASCII); signals/violations are the
+    T5 harmony diagnostics carried in the same numeric tier.
+
+    diagnostics: the composition-check output for this slide. Elements involved in a
+    signal (channel == "signal") are marked "?" in L1; violations are listed alongside L2.
     """
+    diags = diagnostics or []
+    signal_ids = {d.get("elem_id") for d in diags
+                  if d.get("channel") == "signal" and d.get("elem_id")}
+    signal_ids.discard("")
+    signals = [{"rule": d.get("rule", d.get("category", "")),
+                "elem_id": d.get("elem_id", ""),
+                "message": d.get("message", "")}
+               for d in diags if d.get("channel") == "signal"]
+    violations = [{"rule": d.get("rule", d.get("category", "")),
+                   "elem_id": d.get("elem_id", ""),
+                   "severity": d.get("severity", ""),
+                   "message": d.get("message", "")}
+                  for d in diags if d.get("channel") == "violation"]
+
     # L0: structure — regions + decoration skins + large fills
     g0 = _grid(_W, _H, _CELL_L0)
     region_marks = {}
@@ -84,14 +103,14 @@ def render_slide_ascii(plan, canvas=None, slide_index: int = 0) -> dict:
                        _CELL_L0, "-")
             deco.append(d)
 
-    # L1: elements — one letter each, '#' overlap, '!' overflow
+    # L1: elements — one letter each, '#' overlap, '!' overflow, '?' signal
     g1 = _grid(_W, _H, _CELL_L1)
     l2: list[dict] = []
     for pe in plan.elements:
         p = getattr(pe, "payload", None)
         kind = getattr(pe, "content_type", None)
         kind_s = kind.name.lower() if kind is not None else "text"
-        ch = _EL_LETTERS.get(kind_s, "?")
+        ch = "?" if pe.elem_id in signal_ids else _EL_LETTERS.get(kind_s, "?")
         _fill_rect(g1, pe.x, pe.y, pe.w, pe.h, _CELL_L1, ch)
         if kind_s in ("text", "textbox") and p:
             text = (getattr(p, "text", "") or "").strip()
@@ -118,6 +137,8 @@ def render_slide_ascii(plan, canvas=None, slide_index: int = 0) -> dict:
 
     return {
         "L0": _render(g0, f"slide {slide_index} L0 structure (40pt/cell)"),
-        "L1": _render(g1, f"slide {slide_index} L1 elements (20pt/cell, #=overlap !=overflow)"),
+        "L1": _render(g1, f"slide {slide_index} L1 elements (20pt/cell, #=overlap !=overflow ?=signal)"),
         "L2": l2,
+        "signals": signals,
+        "violations": violations,
     }

@@ -215,7 +215,7 @@ let SlideReflexGateway = (() => {
       }
       writeJson(this.config.deckFile, deck)
       writeJson(this.config.feedbackFile, { requests, deck })
-      return this.build(Object.assign({}, deck, { frames_out: this.config.framesFile }))
+      return this.build(Object.assign({}, deck, { frames_out: this.config.framesFile, strict_tokens: false }))
     }
 
     async savePalette(request) {

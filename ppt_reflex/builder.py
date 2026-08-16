@@ -4,21 +4,35 @@ ppt_reflex/builder.py — Sole AI entry point. All engine capabilities exposed h
 from ppt_reflex.builder import PPTBuilder, load_style_presets, save_style_presets, list_style_presets, list_archetypes, get_archetype
 from ppt_reflex.grid.templates import list_templates
 
-# Agent workflow: browse lightweight catalogs → user picks → builder loads only what's needed
+# Agent workflow: browse lightweight catalogs → user picks template+style → declare
+# layout intent only (archetype + params) → element factories carry NO raw color and
+# NO hand-written coordinates → build → declare_direction on failure.
 
 print(list_templates())       # [{id, name, description, bg_hex, accent_hex, ...}, ...] — 6 entries
 print(list_style_presets())   # [{id, display_name, mood, theme}, ...]                   — 6 entries
 print(list_archetypes())      # [{id, name, description, guide}, ...]                    — 12 entries
 
-# Template + style + overrides. No theme layer (removed).
-builder = PPTBuilder(template="academic", style="academic_rigorous",
-                     overrides={"bg_hex": "#000", "accent_hex": "#F00"})
+# Template + style. The engine owns every hue and every coordinate.
+builder = PPTBuilder(template="academic", style="academic_rigorous")
 
-builder.add_slide("Cover",
-    regions=[("r1", 100,80,760,380)],
-    elements=[builder.title("Title"), builder.text("Body", style="Body")],
+builder.add_slide("Cover", archetype="title_cover",
+    elements=[
+        builder.title("Project Title"),
+        builder.subtitle("A one-line tagline"),
+    ],
 )
+
+builder.add_slide("Grid", archetype="grid_cards", params={"columns": 2, "density": "airy"},
+    elements=[builder.box("Feature 1", recipe="card"), builder.box("Feature 2", recipe="card")],
+)
+
 result = builder.build("out.pptx")
+if not result["ok"]:
+    builder.declare_direction("reduce_text")
+
+# ── Escape hatches (advanced, for the human panel only — see end of module) ──
+# manual regions + color overrides bypass the token discipline. They break the
+# harmony floor and are meant for human panel edits, NOT agent-authored decks.
 """
 
 from __future__ import annotations
@@ -34,6 +48,7 @@ from ppt_reflex.grid import (
 )
 from ppt_reflex.grid.templates import get_template, TemplateProfile
 from ppt_reflex.grid.aesthetics import AestheticsEngine, AestheticViolation, ElemStyle
+from ppt_reflex.grid.agent_vocabulary import normalize_fit_mode, reject_unknown_kwargs
 from ppt_reflex.grid.archetypes import get_archetype, list_archetypes, get_layout_policy, LayoutPolicy, resolve_archetype
 from ppt_reflex.grid.serializer import _render_image, _render_payload  # contain-fit rendering
 from ppt_reflex.diff_log import DiffLog  # snapshot-based mutation trace, session lifetime
@@ -105,6 +120,48 @@ def _load_single_style_preset(style_id: str) -> dict | None:
 # ── WCAG color (single source: grid/color_utils.py) ──
 from ppt_reflex.grid.color_utils import is_dark as _is_dark, hex_to_rgb as _hex_to_rgb, rgb_to_hex as _rgb_to_hex
 
+# ── T8: entry discipline — raw color / raw coordinate tokens are forbidden in agent mode ──
+_RAW_COLOR_FORBIDDEN = "raw_color_forbidden"
+_RAW_COLOR_OVERRIDE_KEYS = frozenset({
+    "bg_hex", "text_hex", "title_hex", "accent_hex", "accent2_hex",
+    "gray_hex", "dim_hex", "divider_color_hex",
+})
+# WCAG / color-triangle contrast violations — a human override that lands here is
+# surfaced as human_override_warning (respects the human's decision, never blocks).
+_CONTRAST_VIOLATION_KINDS = frozenset({
+    "color_contrast", "invisible_text", "text_fill_near_match",
+    "dark_bg_dark_text", "light_bg_light_text",
+    "tri_bg_text", "tri_bg_fill", "tri_fill_text",
+})
+
+
+def _forbid_raw_color(param: str, fix_hint: str) -> None:
+    """Reject an agent-authored raw color token. fix_hint points at the recipe /
+    style tier that owns colors. Raises ValueError so add_slide/build surface it."""
+    raise ValueError(
+        f"{_RAW_COLOR_FORBIDDEN}: '{param}' is a raw color escape hatch — the agent "
+        f"must not pick hues. {fix_hint}"
+    )
+
+
+def _has_contrast_violation(diags: list[dict]) -> bool:
+    """True when any diagnostic is a WCAG / color-triangle contrast violation."""
+    for d in diags:
+        kind = d.get("kind", "") or ""
+        if kind in _CONTRAST_VIOLATION_KINDS or kind.startswith("tri_"):
+            return True
+    return False
+
+
+def _harmony_ok(diags: list[dict]) -> bool:
+    """T5: harmony_ok = zero error/warning among the T2–T4 harmony rules.
+    Computed on RAW diagnostics (before aggregation) so a trimmed warning can't
+    silently flip the result. Signals (advisory) never affect harmony_ok."""
+    return not any(
+        d.get("harmony") and d.get("severity") in ("error", "warning")
+        for d in diags
+    )
+
 # ── Style table ──
 STYLE = {
     "Heading":    dict(font_size=28, font_bold=True,  font_color=(0x1A,0x1A,0x2E), alignment="CENTER"),
@@ -170,11 +227,13 @@ class _Spec:
 @dataclass
 class _Arrow:
     deco_id: str; from_elem: str; to_elem: str; text: str = ""
-    direction: str = "below"; color: tuple = (0x66,0x66,0x66); width: float = 1.5
+    # T8: color defaults are None = resolve to the template contract color. An
+    # explicit color tuple is an agent raw-color token and is rejected in strict mode.
+    direction: str = "below"; color: tuple|None = None; width: float = 1.5
     # Fix #8: full DecoIntent params
     margin_pt: float = 8.0
     text_font_size: float = 10.0
-    text_color: tuple = (0x55,0x55,0x55)
+    text_color: tuple|None = None
     occlusion_check: bool = True
 
 @dataclass
@@ -198,7 +257,21 @@ class PPTBuilder:
     def __init__(self, template: str = "academic", style: str|None = None,
                  overrides: dict|None = None,
                  page_w: float = 960, page_h: float = 540,
-                 template_pptx: str|None = None):
+                 template_pptx: str|None = None,
+                 strict_tokens: bool = True):
+        # T8: strict_tokens=True (default) = agent mode — raw color / coordinate
+        # tokens are rejected at the API layer. The human panel passes
+        # strict_tokens=False to exercise the overrides/escape hatches.
+        self.strict_tokens = strict_tokens
+        if strict_tokens and overrides:
+            color_keys = sorted(_RAW_COLOR_OVERRIDE_KEYS & set(overrides))
+            if color_keys:
+                _forbid_raw_color(
+                    "overrides={" + ", ".join(f"{k!r}" for k in color_keys) + "}",
+                    "Pick a template+style instead; the engine owns every hue. "
+                    "bg_hex/accent_hex are advanced escape hatches that break the "
+                    "harmony floor — human panel only (strict_tokens=False).",
+                )
         # Template: lazy — only this one gets instantiated
         self._t: TemplateProfile = get_template(template)
         self._style_preset: dict|None = None
@@ -465,11 +538,10 @@ class PPTBuilder:
                 diags.append(_diag(i, "2", None, kind="arrow_occlusion", severity="warning",
                                    deco_id=d.deco_id, message=w))
 
-        # Phase 2.5: global composition check
-        for ci in global_composition_check(plan):
-            sev = ci.get("level", "info")
-            diags.append(_diag(i, "2.5", None, kind=ci.get("category", "composition"),
-                               severity=sev, message=ci.get("message", "")))
+        # Phase 2.5: global composition check (spatial + typography + T2–T4 harmony)
+        for ci in global_composition_check(plan, self._composition_context()):
+            ci.setdefault("kind", ci.get("category", "composition"))
+            diags.append(_diag(i, "2.5", ci))
 
         # Aesthetics (WCAG floor)
         diags.extend(self._run_aesthetics(c, plan))
@@ -571,11 +643,13 @@ class PPTBuilder:
 
         errs = [d for d in diags if d.get("severity") in ("error",)]
         warns = [d for d in diags if d.get("severity") in ("warning","warn")]
-        return {"ok": len(errs) == 0, "diagnostics": diags,
+        return {"ok": len(errs) == 0, "geometry_ok": len(errs) == 0,
+                "harmony_ok": _harmony_ok(diags),
+                "diagnostics": diags,
                 "summary": f"slide {slide_idx}: {len(diags)} issues ({len(errs)} errors, {len(warns)} warnings)",
                 "roundtrip_ok": True}  # single-slide mode defers roundtrip to deck-level build()
 
-    def inspect_slide(self, slide_idx: int) -> dict:
+    def inspect_slide(self, slide_idx: int, elem_ids: list | None = None) -> dict:
         """Activated three-layer view of one slide — Supply (agent view), Spatial
         (geometry), Profile (layout inference). Memory-only, no render.
 
@@ -584,6 +658,14 @@ class PPTBuilder:
           - spatial: nearest_neighbor / alignment_groups / gap matrix
           - profile: inferred decorative/title/footer roles
           - overlap: cross-region overlap diagnostics
+          - violations / signals: T5 dual-channel harmony diagnostics (scope="slide")
+
+        T9: pass elem_ids to scope the output to those elements + their local
+        neighborhood (nearest neighbors + same-region elements). In scoped mode the
+        spatial/supply views are cropped and a `region` block adds local metrics:
+        local density vs page mean, in-region alignment residual, gap-sequence rhythm,
+        in-region font-size hierarchy levels, pairwise contrast, local color ratio.
+        Memory-only throughout — never renders, never writes a PPTX.
         """
         if slide_idx < 0 or slide_idx >= len(self._slides):
             return {"ok": False, "error": f"slide_idx {slide_idx} out of range [0, {len(self._slides)})"}
@@ -598,29 +680,133 @@ class PPTBuilder:
         from ppt_reflex.grid.supply import Supply
         from ppt_reflex.grid.spatial import SpatialIndex
         from ppt_reflex.grid.profiles import infer_profile
+        from ppt_reflex.grid.composition import global_composition_check
 
         supply = Supply()
         l0 = supply.level0(c.info_grid)
         spatial = SpatialIndex()
         spatial.rebuild(c.info_grid)
         profile = infer_profile(c.info_grid)
+        diags = global_composition_check(plan, self._composition_context())
+        violations = [d for d in diags if d.get("channel") == "violation"]
+        signals = [d for d in diags if d.get("channel") == "signal"]
 
-        return {
+        base = {
             "ok": True, "slide": slide_idx,
-            "supply": l0,
-            "spatial": {
-                "nearest_neighbor": spatial.nearest_neighbor,
-                "alignment_groups": spatial.alignment_groups,
-                "gap_matrix_rows": spatial.gap_matrix_rows,
-                "gap_matrix_cols": spatial.gap_matrix_cols,
-                "density_heatmap": spatial.density_heatmap,
-                "orphans": sorted(spatial.orphans),
-            },
             "profile": {
                 "name": profile.name,
                 "decorative_elements": sorted(profile.decorative_elements),
             },
             "overlap": overlap_diags,
+        }
+
+        if not elem_ids:
+            base.update({
+                "scope": "slide",
+                "supply": l0,
+                "spatial": {
+                    "nearest_neighbor": spatial.nearest_neighbor,
+                    "alignment_groups": spatial.alignment_groups,
+                    "gap_matrix_rows": spatial.gap_matrix_rows,
+                    "gap_matrix_cols": spatial.gap_matrix_cols,
+                    "density_heatmap": spatial.density_heatmap,
+                    "orphans": sorted(spatial.orphans),
+                },
+                "violations": violations,
+                "signals": signals,
+            })
+            return base
+
+        scoped = self._scope_expand(plan, spatial, set(elem_ids))
+        nn = {k: v for k, v in spatial.nearest_neighbor.items() if k in scoped}
+        orphans = sorted(set(spatial.orphans) & scoped)
+        base.update({
+            "scope": "region",
+            "elem_ids": sorted(scoped),
+            "supply": {"scope": "region", "element_ids": sorted(scoped)},
+            "spatial": {"nearest_neighbor": nn, "orphans": orphans,
+                        "alignment_groups": {str(k): [i for i in v if i in scoped]
+                                             for k, v in spatial.alignment_groups.items()}},
+            "region": self._region_metrics(plan, scoped),
+            "violations": [v for v in violations if not v.get("elem_id") or v["elem_id"] in scoped],
+            "signals": [s for s in signals if not s.get("elem_id") or s["elem_id"] in scoped],
+        })
+        return base
+
+    def _scope_expand(self, plan, spatial, eids: set) -> set:
+        """Expand a seed elem set to its local neighborhood: nearest neighbors +
+        every element sharing a region with a seed."""
+        scoped = set(eids)
+        for eid in list(eids):
+            nn = spatial.nearest_neighbor.get(eid)
+            if nn:
+                scoped.add(nn[0])
+        regions = {pe.region_id for pe in plan.elements if pe.elem_id in eids}
+        for pe in plan.elements:
+            if pe.region_id in regions:
+                scoped.add(pe.elem_id)
+        return scoped
+
+    def _region_metrics(self, plan, scoped: set) -> dict:
+        """Local (region-scoped) harmony metrics — density vs page, alignment residual,
+        gap rhythm, font-size tiers, pairwise contrast, local color ratio (T1/T2)."""
+        from ppt_reflex.grid.composition import _color_ledger, _family_key, _rules
+        from ppt_reflex.grid.color_utils import contrast_ratio
+
+        elems = [e for e in plan.elements if e.elem_id in scoped]
+        if not elems:
+            return {}
+        page_area = plan.page_w * plan.page_h
+        page_density = round(sum(e.w * e.h for e in plan.elements) / page_area, 4) if page_area else 0.0
+        xs = [e.x for e in elems]
+        bbox_w = (max(e.x + e.w for e in elems) - min(xs)) or 1.0
+        bbox_h = (max(e.y + e.h for e in elems) - min(e.y for e in elems)) or 1.0
+        local_area = sum(e.w * e.h for e in elems)
+        local_density = round(local_area / (bbox_w * bbox_h), 4)
+
+        font_sizes = sorted({round(e.payload.font_size, 1) for e in elems
+                             if e.payload and e.payload.font_size})
+        left_edges = sorted(e.x for e in elems)
+        align_residual = round(left_edges[-1] - left_edges[0], 1) if len(left_edges) > 1 else 0.0
+
+        by_x = sorted(elems, key=lambda e: e.x)
+        gaps = [by_x[i + 1].x - (by_x[i].x + by_x[i].w) for i in range(len(by_x) - 1)]
+        gaps = [g for g in gaps if g >= 0]
+        if len(gaps) >= 2:
+            mean_g = sum(gaps) / len(gaps)
+            gap_std = round((sum((g - mean_g) ** 2 for g in gaps) / len(gaps)) ** 0.5, 1)
+        else:
+            gap_std = 0.0
+
+        pairwise = []
+        for i in range(len(elems)):
+            for j in range(i + 1, len(elems)):
+                pi, pj = elems[i].payload, elems[j].payload
+                if pi and pj and pi.font_color and pj.font_color:
+                    pairwise.append({"a": elems[i].elem_id, "b": elems[j].elem_id,
+                                     "ratio": round(contrast_ratio(pi.font_color, pj.font_color), 2)})
+
+        ledger = [x for x in _color_ledger(plan, self._composition_context())
+                  if x["elem_id"] in scoped]
+        nt = _rules()["hue_harmony"]["neutral_chroma_threshold"]
+        fam_areas: dict[str, float] = {}
+        for x in ledger:
+            key = _family_key(x["lch"], nt)
+            fam_areas[key] = fam_areas.get(key, 0.0) + x["area"]
+        total = sum(fam_areas.values())
+        local_color_ratio = ({k: round(v / total, 3)
+                              for k, v in sorted(fam_areas.items(), key=lambda kv: -kv[1])}
+                             if total else {})
+
+        return {
+            "local_density": local_density,
+            "page_density": page_density,
+            "alignment_residual_pt": align_residual,
+            "gap_sequence_std_pt": gap_std,
+            "font_size_levels": font_sizes,
+            "font_size_level_count": len(font_sizes),
+            "pairwise_contrast": pairwise,
+            "local_color_ratio": local_color_ratio,
         }
 
     def build_stream(self, path: str|None = None):
@@ -683,6 +869,8 @@ class PPTBuilder:
         yield {
             "type": "summary",
             "path": path, "ok": len(errs) == 0 and len(rt_errors) == 0,
+            "geometry_ok": len(errs) == 0 and len(rt_errors) == 0,
+            "harmony_ok": _harmony_ok(all_diags),
             "diagnostics": aggregated_diags,
             "raw_diagnostic_count": agg_stats["raw_count"],
             "collapsed": {"dedup": agg_stats["dedup"],
@@ -780,7 +968,18 @@ class PPTBuilder:
         hard_blocked = len(blocked) > 0 and self._breaker.build_count >= 3
         build_ok = len(errs) == 0 and len(rt_errors) == 0 and not hard_blocked
 
+        # T8: human-panel mode (strict_tokens=False) may introduce WCAG contrast
+        # violations — surface them as a non-blocking warning, never override the human.
+        human_override_warning = (not self.strict_tokens) and _has_contrast_violation(all_diags)
+
+        # T5: two-level correctness. geometry_ok = existing ok (zero geometric errors);
+        # harmony_ok = zero error/warning among T2–T4 harmony rules. ok stays geometry_ok.
+        harmony_ok = _harmony_ok(all_diags)
+
         return {"path": path, "ok": build_ok,
+                "geometry_ok": build_ok,
+                "harmony_ok": harmony_ok,
+                "human_override_warning": human_override_warning,
                 "diagnostics": aggregated_diags,
                 "design_hints": design_hints,
                 "build_number": self._breaker.build_count,
@@ -1026,9 +1225,18 @@ class PPTBuilder:
         hard_blocked = len(blocked) > 0 and self._breaker.build_count >= 3
         build_ok = len(errs) == 0 and len(rt_errors) == 0 and not hard_blocked
 
+        # T8: human-panel mode contrast violations — non-blocking warning.
+        human_override_warning = (not self.strict_tokens) and _has_contrast_violation(all_diags)
+
+        # T5: two-level correctness.
+        harmony_ok = _harmony_ok(all_diags)
+
         return {
             "path": path,
             "ok": build_ok,
+            "geometry_ok": build_ok,
+            "harmony_ok": harmony_ok,
+            "human_override_warning": human_override_warning,
             "diagnostics": aggregated_diags,
             "design_hints": design_hints,
             "build_number": self._breaker.build_count,
@@ -1089,7 +1297,18 @@ class PPTBuilder:
             fill_color: tuple|None = None, shape_id: str|None = None,
             ph: float|None = None, align_h: str = "left", allow_shrink: bool = False,
             role: str = "", recipe: str|None = None,
-            corner_radius: float|None = None) -> _Spec:
+            corner_radius: float|None = None, **kwargs) -> _Spec:
+        # T7: box(radius=) → corner_radius (CSS alias); unknown kwargs rejected.
+        radius = kwargs.pop("radius", None)
+        if radius is not None:
+            corner_radius = radius
+        reject_unknown_kwargs("box", kwargs)
+        # T8: agent mode rejects element-level raw color; recipe/style tiers own color.
+        if self.strict_tokens and fill_color is not None:
+            _forbid_raw_color(
+                "box(fill_color=...)",
+                "Use recipe='card'/'kpi'/'quote' (or a style tier) to carry color.",
+            )
         # recipe: named component from recipes.json (card/kpi/quote) — token values
         # are pre-resolved by the design-token layer; explicit args still win.
         if recipe:
@@ -1114,7 +1333,19 @@ class PPTBuilder:
               fill_color: tuple|None = None, pw: float|None = None, ph: float|None = None,
               text: str = "", font_size: float|None = None,
               font_color: tuple|None = None, align_h: str = "center",
-              role: str = "") -> _Spec:
+              role: str = "", **kwargs) -> _Spec:
+        # T7: strict mode rejects CSS hallucinations on shape().
+        reject_unknown_kwargs("shape", kwargs)
+        # T8: agent mode rejects raw color and the type-scale backdoor.
+        if self.strict_tokens:
+            if fill_color is not None:
+                _forbid_raw_color("shape(fill_color=...)", "Use recipe/style tiers for color.")
+            if font_color is not None:
+                _forbid_raw_color("shape(font_color=...)",
+                    "font_color_override bypasses the style/type-scale contract — use a style tier.")
+            if font_size is not None:
+                _forbid_raw_color("shape(font_size=...)",
+                    "font_size_override bypasses the type scale — use a style tier (Heading/Body/…).")
         # 形状可承载文字（圆形数字/步骤节点/品牌标）。文字居中在形状内，无需额外文本框。
         # text 非空 + 无 fill → 透明底形状只做文字容器（文字可自由摆放在形状上）。
         style = "Body"
@@ -1129,7 +1360,10 @@ class PPTBuilder:
     def image(self, path: str, region: str = "main",
               pw: float|None = None, ph: float|None = None,
               fit_mode: str = "fit", allow_upscale: bool = False,
-              layout_mode: str = "", caption: str = "") -> _Spec:
+              layout_mode: str = "", caption: str = "", **kwargs) -> _Spec:
+        # T7: strict mode rejects CSS hallucinations; "contain"/"cover" → fit/fill.
+        reject_unknown_kwargs("image", kwargs)
+        fit_mode = normalize_fit_mode(fit_mode)
         # Fix #10: validate path exists
         if not os.path.isfile(path):
             print(f"[PPTBuilder] WARNING: image path not found: {path}")
@@ -1149,16 +1383,28 @@ class PPTBuilder:
                      ctype="table", ph=None,
                      table_headers=list(headers), table_rows=[list(r) for r in rows])
     def arrow(self, frm: str, to: str, text: str = "", direction: str = "below",
-              color: tuple = (0x66,0x66,0x66), width: float = 1.5,
+              color: tuple = None, width: float = 1.5,
               margin_pt: float = 8.0, text_font_size: float = 10.0,
-              text_color: tuple = (0x55,0x55,0x55),
+              text_color: tuple = None,
               occlusion_check: bool = True) -> _Arrow:
+        # T8: explicit color = agent raw-color token → rejected; None = template contract.
+        if self.strict_tokens and (color is not None or text_color is not None):
+            _forbid_raw_color(
+                "arrow(color=.../text_color=...)",
+                "The arrow color is the template contract — omit color/text_color to inherit it.",
+            )
         # Allow passing _Spec objects directly — resolve to elem_id
         from_eid = frm.elem_id if hasattr(frm, 'elem_id') else frm
         to_eid = to.elem_id if hasattr(to, 'elem_id') else to
         return _Arrow(self._nid("arrow"), from_eid, to_eid, text, direction, color, width,
                       margin_pt, text_font_size, text_color, occlusion_check)
     def divider(self, region: str = "main", color: tuple|None = None, width_pt: float|None = None) -> _Spec:
+        # T8: agent mode rejects a raw divider color; the template owns divider_color_hex.
+        if self.strict_tokens and color is not None:
+            _forbid_raw_color(
+                "divider(color=...)",
+                "The divider color is the template contract (divider_color_hex) — omit color to inherit it.",
+            )
         dh = self._t.divider_color_hex
         if dh:
             c = color or tuple(int(dh.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
@@ -1381,14 +1627,19 @@ class PPTBuilder:
         decos = []
         for a in spec.arrows:
             # Fix #8: pass all DecoIntent params
+            # T8: None color → template contract color (engine owns the hue).
+            _arrow_line = a.color if a.color is not None else _hex_to_rgb(
+                self._t.divider_color_hex or self._t.accent_hex or "666666")
+            _arrow_text = a.text_color if a.text_color is not None else _hex_to_rgb(
+                self._t.gray_hex or self._t.text_hex or "555555")
             decos.append(DecoIntent(
                 a.deco_id, "arrow", [a.from_elem, a.to_elem],
                 a.direction,
                 margin_pt=a.margin_pt,
-                style={"line_color": a.color, "line_width_pt": a.width},
+                style={"line_color": _arrow_line, "line_width_pt": a.width},
                 text=a.text,
                 text_font_size=a.text_font_size,
-                text_color=a.text_color,
+                text_color=_arrow_text,
                 occlusion_check=a.occlusion_check,
             ))
 
@@ -1402,6 +1653,17 @@ class PPTBuilder:
             deco_intents=decos,
         )
         return plan
+
+    def _composition_context(self) -> dict:
+        """Resolved template+style palette for the harmony floor (T2–T4)."""
+        return {
+            "bg_hex": self._t.bg_hex,
+            "accent_hex": self._t.accent_hex,
+            "accent2_hex": self._t.accent2_hex,
+            "text_hex": self._t.text_hex,
+            "gray_hex": self._t.gray_hex,
+            "style_id": self._style_id,
+        }
 
     def _run_aesthetics(self, canvas, plan) -> list[dict]:
         """Run AestheticsEngine and return structured diagnostics."""
@@ -1559,20 +1821,27 @@ def _aggregate_diagnostics(diags: list[dict]) -> tuple[list[dict], dict]:
       2. Dedup warnings: same (elem_id, kind) → keep latest phase only.
       3. Batch-collapse: >=5 warnings of same kind → one summary with elem_ids list.
       4. Cap warnings at 15, info at 5. Surplus tracked in `trimmed_*` keys.
+      5. T5: signals (severity "advisory" or channel "signal") are NEVER trimmed and
+         NEVER batch-folded — a focal_point.missing / image_style_conflict must always
+         reach the agent even in a 20-slide deck.
 
     Returns (aggregated, stats) — caller MUST use aggregated as the final diagnostics list.
     """
+    empty_stats = {"raw_count": 0, "errors": 0, "warnings": 0, "info": 0,
+                   "advisories": 0, "dedup": 0, "batch": 0,
+                   "trimmed_warnings": 0, "trimmed_info": 0, "final_count": 0}
     if not diags:
-        return [], {"raw_count": 0, "errors": 0, "warnings": 0, "info": 0,
-                    "dedup": 0, "batch": 0, "trimmed_warnings": 0, "trimmed_info": 0,
-                    "final_count": 0}
+        return [], empty_stats
 
     errors = [d for d in diags if d.get("severity") in ("error",)]
     warns  = [d for d in diags if d.get("severity") in ("warning", "warn")]
     infos  = [d for d in diags if d.get("severity") == "info"]
+    advisories = [d for d in diags
+                  if d.get("severity") == "advisory" or d.get("channel") == "signal"]
 
     raw_counts = {"raw_count": len(diags), "errors": len(errors),
-                  "warnings": len(warns), "info": len(infos)}
+                  "warnings": len(warns), "info": len(infos),
+                  "advisories": len(advisories)}
 
     # ── Rule 2: dedup warnings by (elem_id, kind), keep latest phase ──
     seen: dict[tuple, dict] = {}
@@ -1631,7 +1900,8 @@ def _aggregate_diagnostics(diags: list[dict]) -> tuple[list[dict], dict]:
     trimmed_i = max(0, len(infos) - _INFO_CAP)
     result_infos = infos[:_INFO_CAP]
 
-    aggregated = errors + result_warns + result_infos
+    # T5: signals are exempt from every cap/fold — appended in full, after errors+warnings.
+    aggregated = errors + result_warns + result_infos + advisories
     stats = {
         **raw_counts,
         "dedup": dedup_count,

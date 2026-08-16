@@ -62,6 +62,11 @@ PPTBuilder(
 ```
 
 > **The `theme` parameter has been removed.** Use `template` + `style`.
+>
+> **`overrides.bg_hex` / `overrides.accent_hex` are an advanced escape hatch.** They
+> break the harmony-check baseline (raw color tokens), so agent-authored decks must
+> NOT set them — pick a `template` + `style` instead. The human panel may pass
+> `strict_tokens: false` to exercise them.
 
 **Templates:**
 

@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "_note": "T2-T4 harmony thresholds live here — never hard-coded in code. Bump version on any edit so `make golden` reports the diff.",
+  "color_ratio": {
+    "dominant_band": [0.50, 0.70],
+    "secondary_band": [0.20, 0.35],
+    "accent_band": [0.05, 0.15]
+  },
+  "focal_point": {
+    "contrast_multiplier": 1.5,
+    "edge_margin_pct": 0.04
+  },
+  "image_style": {
+    "analogous_max_deg": 30,
+    "neutral_chroma_threshold": 0.05
+  },
+  "hue_harmony": {
+    "analogous_max_deg": 30,
+    "complementary_band": [150, 210],
+    "triadic_center": 120,
+    "triadic_tolerance": 15,
+    "neutral_chroma_threshold": 0.05
+  },
+  "chroma": {
+    "high_chroma_threshold": 0.15,
+    "max_high_chroma_families": 2
+  }
+}

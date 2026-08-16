@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "pass_rate": 1.0,
+  "block_rate": 1.0,
+  "_note": "Expected golden-set rates. Regenerate after an intentional rules.json change that shifts the floor."
+}

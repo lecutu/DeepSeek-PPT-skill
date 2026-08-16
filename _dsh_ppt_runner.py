@@ -70,7 +70,70 @@ def _element(b, e):
     raise ValueError(f"unknown element type: {t}")
 
 
+# ── T9: region-scoped inspection protocol (read-only, no render, no write) ──
+# Dialogue layer contract for the agent (quote in the prompt):
+#   When the panel writes area/question feedback to _feedback_auto.json, the agent
+#   first runs  `python _dsh_ppt_runner.py --inspect <deck> <slide> [elem_id ...]`
+#   to cross the fuzzy word with region evidence BEFORE generating options:
+#     "挤" (cramped)  → read region.local_density / gap_sequence_std_pt
+#     "乱" (messy)    → read region.font_size_levels / alignment_residual_pt / focal_point
+#     "丑" (ugly)     → read region.local_color_ratio / pairwise_contrast / hue_harmony
+#   Option verbs MUST reuse declare_direction()'s 17 directions (increase_box_height,
+#   reduce_text, switch_style, …) — never invent new words. After the user accepts a
+#   fix, tag the (inspect output + accepted solution) pair with "region" and feed it
+#   to tools/golden_harvest.py.
+def _run_inspect(argv: list) -> None:
+    """python _dsh_ppt_runner.py --inspect <deck.json> <slide_idx> [elem_id ...]"""
+    import contextlib
+    try:
+        i = argv.index("--inspect")
+        deck_path = argv[i + 1]
+        slide_idx = int(argv[i + 2])
+        elem_ids = argv[i + 3:] or None
+    except (ValueError, IndexError):
+        print(json.dumps({"ok": False, "runner_error":
+                          "usage: --inspect <deck.json> <slide_idx> [elem_id ...]"}, ensure_ascii=False))
+        return
+
+    try:
+        with open(deck_path, "r", encoding="utf-8") as f:
+            req = json.load(f)
+        from ppt_reflex.builder import PPTBuilder
+        b = PPTBuilder(template=req.get("template", "academic"),
+                       style=req.get("style"),
+                       overrides=req.get("overrides"),
+                       page_w=req.get("page_w", 960), page_h=req.get("page_h", 540),
+                       strict_tokens=req.get("strict_tokens", True))
+        with contextlib.redirect_stdout(sys.stderr):
+            for s in req.get("slides", []):
+                by_id = {}
+                elements = []
+                for e in s.get("elements", []):
+                    spec = _element(b, e)
+                    elements.append(spec)
+                    if e.get("id"):
+                        by_id[e["id"]] = spec
+                arrows = []
+                for a in s.get("arrows", []):
+                    frm, to = a.get("from"), a.get("to")
+                    if frm in by_id and to in by_id:
+                        arrows.append(b.arrow(by_id[frm], by_id[to], text=a.get("text", "")))
+                b.add_slide(s.get("title", ""), archetype=s.get("archetype"),
+                            params=s.get("params"), regions=s.get("regions"),
+                            elements=elements, arrows=arrows,
+                            frame=s.get("frame", ""), rail=s.get("rail", ""),
+                            corner_mark=s.get("corner_mark", ""))
+        result = b.inspect_slide(slide_idx, elem_ids)
+        print(json.dumps(result, ensure_ascii=False, default=str))
+    except Exception:
+        print(json.dumps({"ok": False, "runner_error": traceback.format_exc(limit=5)},
+                         ensure_ascii=False))
+
+
 def main() -> None:
+    if "--inspect" in sys.argv:
+        _run_inspect(sys.argv)
+        return
     try:
         req = json.load(sys.stdin)
     except Exception as ex:
@@ -108,7 +171,8 @@ def main() -> None:
         b = PPTBuilder(template=req.get("template", "academic"),
                        style=req.get("style"),
                        overrides=req.get("overrides"),
-                       page_w=req.get("page_w", 960), page_h=req.get("page_h", 540))
+                       page_w=req.get("page_w", 960), page_h=req.get("page_h", 540),
+                       strict_tokens=req.get("strict_tokens", True))
         # Engine prints (warnings) go to stderr — stdout carries ONLY the result JSON.
         with contextlib.redirect_stdout(sys.stderr):
             for s in req.get("slides", []):
@@ -161,9 +225,10 @@ def _emit_line(obj) -> None:
 
 def _attach_ascii(b, result: dict) -> None:
     """Append per-slide three-tier ASCII feedback (L0 structure / L1 elements /
-    L2 numeric text table) to a build result."""
+    L2 numeric text table) to a build result. Signal elements are marked '?' in L1."""
     from ppt_reflex.grid.ascii_map import render_slide_ascii
     from ppt_reflex.grid import GridCanvas, GridConfig, execute_phase1
+    from ppt_reflex.grid.composition import global_composition_check
 
     pages = []
     try:
@@ -172,7 +237,9 @@ def _attach_ascii(b, result: dict) -> None:
             c = GridCanvas(GridConfig())
             c.checkpoint()
             execute_phase1(plan, c)
-            pages.append(render_slide_ascii(plan, c, i))
+            ctx = b._composition_context() if hasattr(b, "_composition_context") else None
+            diags = global_composition_check(plan, ctx)
+            pages.append(render_slide_ascii(plan, c, i, diagnostics=diags))
     except Exception as ex:
         pages.append({"error": str(ex)})
     result["ascii"] = pages

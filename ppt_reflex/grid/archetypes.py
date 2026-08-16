@@ -11,6 +11,7 @@ Canvas: 960×540pt default. All coordinates relative to top-left.
 
 from __future__ import annotations
 from dataclasses import dataclass, field, replace
+from .agent_vocabulary import normalize_density
 
 @dataclass
 class SlideArchetype:
@@ -113,7 +114,7 @@ ARCHETYPES: dict[str, SlideArchetype] = {
     "grid_cards": SlideArchetype(
         id="grid_cards",
         name="Grid Cards (2×2)",
-        description="Four equal cards — features, team, use cases",
+        description="Four equal cards — features, team, use cases (web analogy: 三列特性卡片区 / feature-card grid)",
         regions=[
             ("header", 60, 30, 840, 72, 1),
             ("card_tl", 60, 110, 400, 180, 2),
@@ -329,7 +330,7 @@ def resolve_archetype(archetype_id: str, params: dict | None = None) -> SlideArc
     if isinstance(gap, bool) or not isinstance(gap, (int, float)) or gap <= 0:
         raise ValueError(f"gap must be a positive number (pt), got {gap!r}")
 
-    density = params.get("density", "normal")
+    density = normalize_density(params.get("density", "normal"))
     if density not in _DENSITY_SCALE:
         raise ValueError(
             f"density must be one of {sorted(_DENSITY_SCALE)}, got {density!r}"
