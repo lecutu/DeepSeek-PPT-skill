@@ -2,8 +2,8 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-72%20passing-brightgreen.svg)](ppt_reflex/grid/tests/)
-[![Version](https://img.shields.io/badge/version-0.6.0-536DFE.svg)](pyproject.toml)
+[![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen.svg)](ppt_reflex/grid/tests/)
+[![Version](https://img.shields.io/badge/version-1.0.0-536DFE.svg)](pyproject.toml)
 [![Vision-free](https://img.shields.io/badge/vision-free-8e44ad.svg)]()
 [![DSH plugin](https://img.shields.io/badge/DSH-dynamic%20plugin-536DFE.svg)]()
 
@@ -80,18 +80,26 @@ The AI reads the diagnostics, edits its declaration, and re-runs. A `CircuitBrea
 | **Render hook** | `set_render_frame_hook(fn)` fires per element before draw — the streaming-preview bridge. |
 | **DSH plugin bridge** | `_dsh_ppt_runner.py` — stdin JSON in, result JSON out, with streaming frames and ASCII attached. |
 
-## What's new in the harmony pass
+## What's new in harmony v1 (supersedes v0.6.0)
 
 | Change | What it means |
 |:--|:--|
-| OKLCH colour core | `grid/oklch.py` — sRGB↔OKLCH, hue distance, chroma/lightness helpers |
-| Two-channel diagnostics | violations → `error`/`warning` (block `ok`); signals → `advisory` (never trimmed, never batch-folded) |
-| Area-based colour ratio | 60-30-10 bands measured by filled area; images enter via PIL dominant colour (`image_style_conflict` signal) |
-| Focal-point uniqueness | exactly one focal element per page (`focal_point.missing` / `split` / `ambiguous`) |
-| Hue harmony | mono / analogous / complementary / triadic, all in OKLCH; ≤2 high-chroma families per page |
-| Entry discipline | `strict_tokens=True` by default; agent-facing docstring rewritten without raw colours or coordinates |
-| CSS-isomorphic vocabulary | `contain`/`cover`, `comfortable`/`spacious`, `radius` alias; CSS hallucinations rejected with alternatives |
-| Region diagnostics | `inspect_slide(idx, elem_ids)` + `runner --inspect` — pure in-memory, T5-consistent schema |
+| **OKLCH colour core** | `grid/oklch.py` — sRGB↔OKLCH, hue distance, chroma/lightness helpers |
+| **Two-channel diagnostics** | violations → `error`/`warning` (block `ok`); signals → `advisory` (never trimmed, never batch-folded) |
+| **Area-based colour ratio** | 60-30-10 bands measured by filled area; images enter via PIL dominant colour (`image_style_conflict` signal) |
+| **Focal-point uniqueness** | exactly one focal element per page (`focal_point.missing` / `split` / `ambiguous`) |
+| **Hue harmony** | mono / analogous / complementary / triadic, all in OKLCH; ≤2 high-chroma families per page |
+| **Entry discipline** | `strict_tokens=True` by default; agent-facing docstring rewritten without raw colours or coordinates |
+| **CSS-isomorphic vocabulary** | `contain`/`cover`, `comfortable`/`spacious`, `radius` alias; CSS hallucinations rejected with alternatives |
+| **Region diagnostics** | `inspect_slide(idx, elem_ids)` + `runner --inspect` — pure in-memory, T5-consistent schema |
+| **Dual gate** | `geometry_ok` (zero geometry errors) **and** `harmony_ok` (zero harmony violations) — both must pass before presenting |
+| **Page summaries** | `page_summaries` per-page aggregation — read first, drill into `diagnostics` only when pointed |
+| **Persistent circuit breaker** | `build_count` accumulates across processes in `_breaker_state.json`; `hard_blocked` / `blocked_fingerprints` / `entropy_stalled` in every result |
+| **Watcher auto-build** | the host watcher builds from `_deck_auto.json` — writing the deck file *is* the build trigger |
+| **`ppt_build` tool** | host-registered explicit operations: `build` / `renderSlides` / `inspect` |
+| **Recipe theme remap** | recipe fills resolve through the active style palette (dark templates no longer produce light-card/dark-text) |
+| **Adaptive headers** | header height follows the resolved title size instead of a fixed 72 pt |
+| **Bidirectional ink contrast** | dark-fill→white *and* light-fill→ink text colour both resolved from luminance |
 
 ## Quick Start
 
@@ -109,7 +117,7 @@ Python 3.10+. Two runtime dependencies: `python-pptx` and `Pillow`.
 ```python
 from ppt_reflex.builder import PPTBuilder
 
-b = PPTBuilder(template="business", style="corporate_minimal")
+b = PPTBuilder(template="business", style="corporate_minimal")  # strict_tokens=True by default
 
 b.add_slide("Why This Exists",
     archetype="content",
@@ -118,7 +126,7 @@ b.add_slide("Why This Exists",
         b.bullet("Text overflow and invisible text are silent failures"),
         b.bullet("ppt-reflex adds a pre-render diagnostic pass"),
         b.box("Every LLM can read JSON.\nNo vision required.",
-              recipe="card", fill_color=(15, 23, 42)),
+              recipe="card"),   # colors come from template + style + recipe tiers — never raw
     ],
 )
 
@@ -133,7 +141,7 @@ print(result["summary"])
 python _dsh_ppt_runner.py < deck_request.json
 ```
 
-`deck_request.json`:
+`deck_request.json` (identical format to `_deck_auto.json` — the deck file is the full payload):
 
 ```json
 {
@@ -148,7 +156,7 @@ python _dsh_ppt_runner.py < deck_request.json
       "elements": [
         {"id": "t1", "type": "title", "text": "python-pptx Is Blind"},
         {"id": "b1", "type": "box", "text": "No vision required.",
-         "recipe": "card", "fill_color": [15, 23, 42]}
+         "recipe": "card"}
       ]
     }
   ]
@@ -161,21 +169,24 @@ python _dsh_ppt_runner.py < deck_request.json
 {
   "path": "output.pptx",
   "ok": true,
-  "summary": "3 issues (0 errors, 3 warnings)",
-  "diagnostics": [
-    {
-      "slide": 0, "phase": "freeze", "kind": "overflow_vertical",
-      "severity": "warning", "elem_id": "e_2",
-      "message": "text needs 44pt, box is 38pt — 6pt overflow",
-      "options": ["shrink font", "widen box", "shorten text"]
-    }
+  "geometry_ok": true,
+  "harmony_ok": true,
+  "summary": "0 issues — clean",
+  "diagnostics": [],
+  "design_hints": [],
+  "page_summaries": [
+    {"slide": 0, "elements": 2, "errors": 0, "harmony": 0, "signals": 0}
   ],
-  "ascii": [ { "L0": "...structure map...", "L1": "...element map...", "L2": [ { "elem_id": "e_2", "font_size": 14, "overflow_pt": 6 } ] } ],
+  "build_number": 1,
+  "hard_blocked": false,
+  "blocked_fingerprints": [],
+  "entropy_stalled": false,
+  "ascii": [ { "L0": "...structure map...", "L1": "...element map...", "L2": [ { "elem_id": "e_2", "font_size": 14, "overflow_pt": -6 } ] } ],
   "survey": { "topic": "…", "template": "business", "questions": "…" }
 }
 ```
 
-`ok: true` means zero *errors* and zero roundtrip failures — the file is visually correct. Warnings are advisory; the agent decides which to act on.
+**Two gates, fixed in order:** `geometry_ok` (zero `error`-severity geometry violations) and `harmony_ok` (zero harmony `warning`s) are both verifiable floors. `ok: true` means the file is structurally correct; harmony warnings are must-fix before presenting; `advisory` signals should be eliminated when cheap but never block.
 
 ## DSH Plugin Workflow
 
@@ -187,7 +198,7 @@ The conversation flow is a closed loop:
 user says what they need
         │
         ▼
-agent questionnaire (8 items, click-select)
+agent questionnaire (8 items, click-select; quick mode on "you decide")
    topic / audience / template / style /
    content source / images / slide count / density
         │
@@ -195,15 +206,20 @@ agent questionnaire (8 items, click-select)
 generate deck (archetypes + params + recipes + skins)
         │
         ▼
-build  ──►  panel preview (shell.overlay), frames stream in real time
+write D:\ppt\_deck_auto.json  ──►  host watcher auto-builds
+        │
+        ▼
+panel preview (shell.overlay), frames stream in real time
         │
         ▼
 feedback loop
    click element · drag-box select · recolor request · problem flag
         │
         ▼
-fix_slide() / rebuild()  ──►  preview again
+agent edits the deck file  ──►  watcher rebuilds  ──►  preview again
 ```
+
+**Build trigger = writing the deck file.** The host watcher watches `D:\ppt\_deck_auto.json`; on change it runs the engine and streams frames to the panel — the agent never invokes the runner to build (that is escape-only). For an immediate rebuild or a visual check, the host-registered **`ppt_build`** tool offers three actions: `build` (rebuild from the deck), `renderSlides` (PNGs under `_render_vision/`), and `inspect` (region-scoped diagnostics for the feedback protocol).
 
 **Panel preview** renders at the same 960×540 coordinates the `.pptx` will use — same deterministic pipeline, two render targets. Per-element frames are pushed in real time through `set_render_frame_hook`, so you watch elements land one by one.
 
@@ -211,11 +227,12 @@ fix_slide() / rebuild()  ──►  preview again
 
 | File | Purpose |
 |:--|:--|
-| `_deck_auto.json` | Deck plan (slides, archetypes, elements) |
+| `_deck_auto.json` | Deck plan (slides, archetypes, elements) — **the only file the agent touches** |
 | `_frames_auto.jsonl` | Build frames — the panel polls this for its preview |
-| `_feedback_auto.json` | User problem feedback from the panel |
+| `_feedback_auto.json` | User problem feedback from the panel (inlines the affected element's text) |
 | `_selection_auto.json` | Element selection (click / drag-box) |
-| `_palette_auto.json` | Recolor request (palette / hex change) |
+| `_palette_auto.json` | Panel palette — **merged into `overrides` by the runner/host, never by the agent** |
+| `_breaker_state.json` | CircuitBreaker persistence (build counts per deck fingerprint, across processes) |
 
 ## API Overview
 
@@ -232,7 +249,8 @@ fix_slide() / rebuild()  ──►  preview again
 | `build / build_stream` | `(path)` | Full build (one-shot) or per-slide streaming generator |
 | `fix_slide / rebuild` | `(idx, …)` / `(changed_slides, path)` | In-place edit + hash-cached incremental rebuild |
 | `verify` | `(path)` | Reopen `.pptx`, pure-geometry structural check (no vision) |
-| `declare_direction` | `(direction)` | Declare fix strategy to the CircuitBreaker |
+| `declare_direction` | `(direction)` | Declare fix strategy to the CircuitBreaker (17 verbs, see SKILL §12) |
+| `inspect_slide` | `(idx, elem_ids)` | Pure in-memory region inspection for the feedback protocol |
 | `set_render_frame_hook` | `(fn)` | Per-element callback for streaming previews |
 | `list_templates / list_style_presets / list_archetypes` | `()` | Lightweight catalogs for the agent to browse |
 | `get_token / resolve_recipe` | `(category, level)` / `(name)` | Design-token and recipe resolution |
@@ -252,9 +270,9 @@ The engine is a floor, not a ceiling. Three layers let the agent take back contr
 
 ## Roadmap
 
-- **Golden-set regression (T6)** — baseline of ≥10 "beautiful" + ≥10 "ugly" decks with expected pass/block per rule; `make golden` diffs pass/intercept rates against `tests/golden/baseline.json` and fails on any regression. Threshold changes in `rules.json` must run it.
+- **Golden-set regression (T6)** — baseline of ≥10 "beautiful" + ≥10 "ugly" decks with expected pass/block per rule; `make golden` diffs pass/intercept rates against `tests/golden/baseline.json` and fails on any regression. Threshold changes in `rules.json` must run it. *(baseline + runner + 110 passing tests landed in harmony v1)*
 - **Harvest golden cases** from real feedback (`_feedback_auto.json` history: user-"ugly" = negative, accepted decks = positive) via `tools/golden_harvest.py`.
-- **More recipes and tokens** — grow the human-curated asset layer (`kpi` variants, data-table recipes).
+- **More recipes and tokens** — grow the human-curated asset layer (`kpi` variants with `value_size` for unambiguous focal hierarchy, data-table recipes).
 - **More parameterized primitives** — bring `columns`/`gap`/`density`-style parameters to more archetypes.
 - **Reference-PPTX layout extraction** — `layout_extractor.py` already infers zones from an existing deck; wire it into `register_archetype()`.
 - **Full ASCII → diagnostic cross-linking** — make every `#`/`!` in the L1 map clickable to its JSON diagnostic.

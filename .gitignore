@@ -65,5 +65,20 @@ _probe*.pptx
 _deck_whitecollar.json
 _deck_whitecollar_v2.json
 
+# CircuitBreaker persistence + diagnostics
+_breaker_state.json
+_git_report.txt
+
+# Render outputs (visual verification, not source)
+_render/
+_render_vision/
+
+# Reference skill vendors / third-party mirrors (not part of this repo)
+_ref_guizang/
+_ref_taste/
+_ref_report_*.md
+claude-desktop-zh-cn/
+_check_claude_install.ps1
+
 !_dsh_ppt_runner.py
 
