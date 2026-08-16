@@ -234,6 +234,8 @@ agent edits the deck file  ──►  watcher rebuilds  ──►  preview again
 | `_palette_auto.json` | Panel palette — **merged into `overrides` by the runner/host, never by the agent** |
 | `_breaker_state.json` | CircuitBreaker persistence (build counts per deck fingerprint, across processes) |
 
+**Temp cleanup channel:** every build leaves untracked `.pptx` files and render outputs. `python cleanup_tmp.py --dry-run` lists what would be removed (untracked `.pptx` at any depth, `_render/`, `_render_vision/`, stale `_stream_*`/`_ascii_out.json`/`_git_report.txt`); `python cleanup_tmp.py` deletes them. Git-tracked files and the workflow bridge files above are **never** touched.
+
 ## API Overview
 
 | API | Signature | Purpose |
