@@ -212,6 +212,7 @@ function ensureStyle() {
       const canvasRef = React.useRef(null)
       const framesBySlideRef = React.useRef(new Map())
       const sinceRef = React.useRef(0)
+      const epochRef = React.useRef(null)
       const autoOpenedRef = React.useRef(false)
       const dragStartRef = React.useRef(null)
       const [deckText, setDeckText] = React.useState('')
@@ -231,6 +232,17 @@ function ensureStyle() {
             const sinceBefore = sinceRef.current
             const r = await svc().framesFile({ since: sinceBefore })
             if (r && Array.isArray(r.frames)) {
+              const epochKnown = typeof r.epoch === 'number'
+              const epochChanged = epochKnown && r.epoch !== epochRef.current
+              if (epochChanged) {
+                // framesFile epoch changed → the runner is writing a fresh
+                // build: drop the previous build's frames and restart the
+                // since cursor so the new frames stream in from 0.
+                epochRef.current = r.epoch
+                framesBySlideRef.current = new Map()
+                sinceRef.current = 0
+                setTotalSlides(0)
+              }
               for (const f of r.frames) {
                 sinceRef.current = (f.seq || 0) + 1
                 if (f.clear_slide) {
@@ -245,10 +257,10 @@ function ensureStyle() {
               if (slides > 0) setTotalSlides(slides)
               if (r.frames.length > 0) { draw(); setThumbRev((v) => v + 1) }
               if (r.building) {
-                // A fresh build begins when the since cursor is back at 0 — slide
-                // the panel out once per build; ✕/mask mark it dismissed so it
-                // stays shut for the rest of this build.
-                if (sinceBefore === 0) {
+                // A fresh build begins when the framesFile epoch changes —
+                // slide the panel out once per build; ✕/mask mark it
+                // dismissed so it stays shut for the rest of this build.
+                if (epochChanged || (!epochKnown && sinceBefore === 0)) {
                   autoOpenedRef.current = false
                   setOpen(true)
                   autoOpenedRef.current = true
@@ -344,7 +356,7 @@ function ensureStyle() {
         if (colors.length === 0) { setStatus(t.noColorReq); return }
         setStatus(t.applyRecolor)
         svc().applyFeedbackBuild({ requests }).then((r) => {
-          if (r && r.error) setStatus(t.applyFailed + String(r.error).slice(-200))
+          if (r && (r.hostError || r.ok === false)) setStatus(t.applyFailed + String(r.hostError || 'build failed').slice(-200))
           else setStatus(t.rebuildStarted)
         }).catch((e) => setStatus(t.error + String(e)))
       }

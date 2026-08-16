@@ -1,0 +1,28 @@
+{
+  "id": "gb_section_teaching",
+  "kind": "beautiful",
+  "template": "teaching",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "section divider: chapter numberless title + brief description.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Chapter",
+      "archetype": "section",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Chapter Two"
+        },
+        {
+          "type": "text",
+          "text": "What comes next"
+        }
+      ]
+    }
+  ]
+}

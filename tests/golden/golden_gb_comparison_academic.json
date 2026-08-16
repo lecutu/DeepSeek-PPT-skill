@@ -1,0 +1,34 @@
+{
+  "id": "gb_comparison_academic",
+  "kind": "beautiful",
+  "template": "academic",
+  "style": "academic_rigorous",
+  "strict_tokens": true,
+  "note": "comparison A/B: two recipe cards.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Options",
+      "archetype": "comparison",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Options"
+        },
+        {
+          "type": "box",
+          "text": "Option A",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Option B",
+          "recipe": "card"
+        }
+      ]
+    }
+  ]
+}

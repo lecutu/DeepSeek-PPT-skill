@@ -35,8 +35,9 @@ def test_arrow_color_rejected():
 
 
 def test_overrides_color_rejected():
+    # bg_hex/accent_hex are T10 panel-palette relay (exempt); other raw color keys stay forbidden
     with pytest.raises(ValueError, match="raw_color_forbidden"):
-        PPTBuilder(template="academic", overrides={"bg_hex": "#000"})
+        PPTBuilder(template="academic", overrides={"text_hex": "#000"})
 
 
 def test_arrow_default_color_is_none():

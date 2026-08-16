@@ -1,0 +1,43 @@
+{
+  "id": "gu_missing_with_violation",
+  "kind": "ugly",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": false,
+  "note": "无焦点页必须配真 violation: a lone small text emits focal_point.missing (advisory, non-blocking) — this deck pairs it with a real 1:1 color_ratio violation so harmony_ok actually flips. Demonstrates missing-alone is NOT a blocker.",
+  "expected": {
+    "blocks": [
+      "color_ratio"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "blank",
+      "elements": [
+        {
+          "type": "subtitle",
+          "text": "a small note"
+        },
+        {
+          "type": "box",
+          "text": "a",
+          "fill_color": [
+            0,
+            229,
+            255
+          ]
+        },
+        {
+          "type": "box",
+          "text": "b",
+          "fill_color": [
+            255,
+            109,
+            0
+          ]
+        }
+      ]
+    }
+  ]
+}

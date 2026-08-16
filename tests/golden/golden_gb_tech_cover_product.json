@@ -1,0 +1,28 @@
+{
+  "id": "gb_tech_cover_product",
+  "kind": "beautiful",
+  "template": "product",
+  "style": "tech_dark",
+  "strict_tokens": true,
+  "note": "tech_dark cover on dark product template — neon accent on dark field.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Cover",
+      "archetype": "title_cover",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Launch"
+        },
+        {
+          "type": "subtitle",
+          "text": "tagline"
+        }
+      ]
+    }
+  ]
+}

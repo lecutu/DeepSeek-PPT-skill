@@ -8,6 +8,7 @@ P1-②: Entropy management — detect mechanical micro-adjustments → force des
 """
 
 from __future__ import annotations
+import os, json, hashlib
 from dataclasses import dataclass, field
 from collections import Counter, defaultdict
 from enum import IntEnum
@@ -80,6 +81,38 @@ class FixFingerprint(NamedTuple):
     kind: str
     elem_id: str
     direction: str = "unknown"
+
+
+# ── Persistence helpers ────────────────────────────────────────────────
+# CircuitBreaker state is keyed by a deck fingerprint so build_count accumulates
+# across processes (runner loads before build, saves after). Fingerprints are
+# layout-structural only (archetype + element-kind sequence) — content edits do
+# not reset the breaker.
+
+def _fp_encode(key: tuple) -> str:
+    return json.dumps(list(key), ensure_ascii=False, separators=(",", ":"))
+
+
+def _fp_decode(s: str) -> tuple:
+    return tuple(json.loads(s))
+
+
+def deck_fingerprint(builder) -> str:
+    """Stable deck-level fingerprint: slides' archetype + element-kind sequence.
+    No elem_ids (they are auto-generated and change every build), no text content
+    (copy edits must not reset the breaker)."""
+    seq = []
+    for s in getattr(builder, "_slides", []):
+        kinds = [getattr(e, "ctype", "") or "" for e in getattr(s, "elements", [])]
+        seq.append({
+            "arch": getattr(s, "archetype_id", "") or "",
+            "kinds": kinds,
+            "n_regions": len(getattr(s, "regions", []) or []),
+            "frame": getattr(s, "frame", "") or "",
+            "rail": getattr(s, "rail", "") or "",
+        })
+    raw = json.dumps(seq, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 @dataclass
@@ -271,6 +304,84 @@ class CircuitBreaker:
         self.error_trend.clear()
         self.build_count = 0
         self._active_direction = None
+
+    # ── persistence ──
+
+    def to_dict(self) -> dict:
+        """Serialize breaker state (JSON-safe). fingerprints keys are tuples →
+        encoded as JSON strings; Escalation levels as ints."""
+        return {
+            "fingerprints": {
+                _fp_encode(base_key): {
+                    "directions": {d: v.attempts for d, v in rec.directions.items()},
+                    "seen_count": rec.seen_count,
+                    "current_level": int(rec.current_level),
+                }
+                for base_key, rec in self.fingerprints.items()
+            },
+            "error_trend": list(self.error_trend),
+            "build_count": int(self.build_count),
+            "active_direction": self._active_direction,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CircuitBreaker":
+        """Rehydrate breaker state from to_dict() output. Malformed entries are
+        skipped — a corrupt state file degrades to a fresh breaker, never a crash."""
+        cb = cls()
+        if not isinstance(data, dict):
+            return cb
+        try:
+            cb.build_count = int(data.get("build_count", 0) or 0)
+        except (TypeError, ValueError):
+            cb.build_count = 0
+        trend = data.get("error_trend") or []
+        if isinstance(trend, list):
+            cb.error_trend = [int(x) for x in trend[:cb._max_trend_len] if isinstance(x, (int, float))]
+        cb._active_direction = data.get("active_direction")
+        fps = data.get("fingerprints")
+        if isinstance(fps, dict):
+            for k, v in fps.items():
+                try:
+                    base_key = _fp_decode(k)
+                    level = Escalation(int(v.get("current_level", 1)))                         if int(v.get("current_level", 1)) in (1, 2, 3) else Escalation.HINT
+                    rec = EscalationRecord(
+                        fingerprint_base=base_key,
+                        seen_count=int(v.get("seen_count", 0) or 0),
+                        current_level=level,
+                    )
+                    dirs = v.get("directions") or {}
+                    if isinstance(dirs, dict):
+                        for d, n in dirs.items():
+                            rec.directions[str(d)] = DirectionRecord(
+                                direction=str(d), attempts=int(n or 0))
+                    cb.fingerprints[base_key] = rec
+                except Exception:
+                    continue
+        return cb
+
+    def save(self, path: str) -> None:
+        """Atomically persist breaker state (tmp + os.replace)."""
+        tmp = f"{path}.{os.getpid()}.tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.to_dict(), f, ensure_ascii=False)
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+
+    @classmethod
+    def load(cls, path: str) -> "CircuitBreaker":
+        """Load persisted state; any failure → fresh breaker."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return cls.from_dict(json.load(f))
+        except Exception:
+            return cls()
 
 
 # ═══════════════════════════════════════════════════════════════

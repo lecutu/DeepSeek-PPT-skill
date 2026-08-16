@@ -126,6 +126,19 @@ _RAW_COLOR_OVERRIDE_KEYS = frozenset({
     "bg_hex", "text_hex", "title_hex", "accent_hex", "accent2_hex",
     "gray_hex", "dim_hex", "divider_color_hex",
 })
+# T10: panel-palette relay colors — accent_hex/bg_hex come from the human panel's
+# palette (user-relayed hues) and are EXEMPT from raw_color_forbidden in strict
+# mode. Every other raw color override stays forbidden.
+_RAW_COLOR_OVERRIDE_EXEMPT = frozenset({"accent_hex", "bg_hex"})
+
+# ── Input hardening limits (T10) — malformed/hostile input degrades to a
+# structured diagnostic instead of a crash or unbounded work. ──
+_MAX_ELEMENTS_PER_SLIDE = 500
+_MAX_TABLE_ROWS = 50
+_MAX_TABLE_COLS = 50
+_MAX_TEXT_CHARS = 2000
+_IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"})
+_IMAGE_MAX_BYTES = 50 * 1024 * 1024  # 50MB
 # WCAG / color-triangle contrast violations — a human override that lands here is
 # surfaced as human_override_warning (respects the human's decision, never blocks).
 _CONTRAST_VIOLATION_KINDS = frozenset({
@@ -264,7 +277,9 @@ class PPTBuilder:
         # strict_tokens=False to exercise the overrides/escape hatches.
         self.strict_tokens = strict_tokens
         if strict_tokens and overrides:
-            color_keys = sorted(_RAW_COLOR_OVERRIDE_KEYS & set(overrides))
+            # T10: accent_hex/bg_hex (panel palette relay) are exempt; all other
+            # raw color overrides remain forbidden in agent mode.
+            color_keys = sorted((_RAW_COLOR_OVERRIDE_KEYS - _RAW_COLOR_OVERRIDE_EXEMPT) & set(overrides))
             if color_keys:
                 _forbid_raw_color(
                     "overrides={" + ", ".join(f"{k!r}" for k in color_keys) + "}",
@@ -328,6 +343,17 @@ class PPTBuilder:
         self._style_body_font = fo.get("body_font")
         self._image_layout = preset.get("image_layout", None)
         self._shape_override = preset.get("shape_override", {}) or {}
+        # T11: recipe color palette remap — tokens.json carries the DEFAULT light
+        # palette; dark styles must remap surface/ink/border/muted so recipe
+        # components don't paint light cards under dark text.
+        self._style_palette = {
+            "surface": c.get("surface", self._t.surface_hex),
+            "ink": c.get("text_primary", self._t.text_hex),
+            "ink_soft": c.get("text_secondary", self._t.gray_hex),
+            "border": c.get("surface", self._t.surface_hex),
+            "accent": c.get("accent", self._t.accent_hex),
+            "accent_soft": c.get("accent_soft", None),
+        }
 
     # ── slide ──
     def add_slide(self, title: str = "", *, archetype: str|None = None,
@@ -366,6 +392,39 @@ class PPTBuilder:
 
         if resolved_regions is None:
             resolved_regions = [("main", 60, 60, 840, 420, 1)]
+
+        # ── T11: header 高度自适应标题字号 ──
+        # 静态 72pt header 按 28pt 标题设计；tech_dark 等 36pt 标题的 preset
+        # 会把标题裁掉（可用高 = h − 2×inset < phase1 需求）。按已解析的
+        # title_size 撑高 header，内容带等量下推 + 压缩，画布总高不变。
+        if elements:
+            heading = next((e for e in elements
+                            if getattr(e, 'style', '') == 'Heading'), None)
+            if heading:
+                header_i = next((i for i, r in enumerate(resolved_regions)
+                                 if r[0] == "header"), None)
+                if header_i is not None:
+                    fs = self._t.title_size
+                    ls = self._t.line_spacing
+                    # phase1 _estimate_height 公式：max(rh+12, fs*1.5+12)
+                    need_h = max(fs * 1.5, fs * ls) + 12.0
+                    r = resolved_regions[header_i]
+                    inset = r[6] if len(r) > 6 else 8.0
+                    deficit = need_h - (r[4] - 2 * inset)
+                    if deficit > 0:
+                        adjusted = []
+                        for j, r2 in enumerate(resolved_regions):
+                            name, x, y, w, h, z = r2[:6]
+                            in2 = r2[6] if len(r2) > 6 else 8.0
+                            if j == header_i:
+                                adjusted.append((name, x, y, w, h + deficit, z, in2))
+                            elif y >= r[1] + r[4] - 1 and y <= r[1] + r[4] + 24:
+                                # 紧贴 header 下缘的内容带：下推并压缩，底缘不变
+                                adjusted.append((name, x, y + deficit, w,
+                                                 max(24.0, h - deficit), z, in2))
+                            else:
+                                adjusted.append(r2)
+                        resolved_regions = adjusted
 
         # Auto-route elements via archetype zone_map + distribute（分布组轮流分配）
         routed_elements = []
@@ -427,6 +486,132 @@ class PPTBuilder:
                           f"Bump the region height before build to avoid overflow.")
         except Exception:
             pass
+
+    def _validate_slide_input(self, slide_idx: int, spec: _Slide) -> list[dict]:
+        """T10: harden malformed/hostile input before the pipeline runs.
+
+        Validates regions, element count, table size, text length, image paths and
+        arrow references. Malformed pieces produce structured diagnostics and are
+        trimmed/skipped — the build never crashes on input alone.
+
+        Trimming mutates spec (elements/rows) so a second build sees the already
+        trimmed deck; the first build's diagnostic documents what was skipped.
+        """
+        diags: list[dict] = []
+
+        # ── regions: sequence of ≥5 numeric fields, else safe default ──
+        for ri, d in enumerate(list(spec.regions)):
+            bad, reason = False, ""
+            if not isinstance(d, (list, tuple)):
+                bad, reason = True, f"not a sequence ({type(d).__name__})"
+            elif len(d) < 5:
+                bad, reason = True, f"length {len(d)} < 5"
+            else:
+                for k in (1, 2, 3, 4):
+                    try:
+                        float(d[k])
+                    except (TypeError, ValueError):
+                        bad, reason = True, f"field[{k}] not numeric ({d[k]!r})"
+                        break
+            if bad:
+                diags.append({
+                    "slide": slide_idx, "phase": "input", "kind": "invalid_region",
+                    "severity": "warning", "region_index": ri,
+                    "message": f"region #{ri} malformed ({reason}) — replaced with default",
+                })
+                spec.regions[ri] = ("main", 60, 60, 840, 420, 1, 8.0)
+
+        # ── element count cap ──
+        if len(spec.elements) > _MAX_ELEMENTS_PER_SLIDE:
+            diags.append({
+                "slide": slide_idx, "phase": "input", "kind": "too_many_elements",
+                "severity": "warning",
+                "message": (f"{len(spec.elements)} elements exceed the "
+                            f"{_MAX_ELEMENTS_PER_SLIDE} cap — extras skipped"),
+                "count": len(spec.elements), "cap": _MAX_ELEMENTS_PER_SLIDE,
+            })
+            spec.elements = spec.elements[:_MAX_ELEMENTS_PER_SLIDE]
+
+        elem_ids: set[str] = set()
+        for e in spec.elements:
+            elem_ids.add(e.elem_id)
+            # ── text length cap ──
+            if e.text and len(e.text) > _MAX_TEXT_CHARS:
+                diags.append({
+                    "slide": slide_idx, "phase": "input", "kind": "text_too_long",
+                    "severity": "warning", "elem_id": e.elem_id,
+                    "chars": len(e.text), "cap": _MAX_TEXT_CHARS,
+                    "message": (f"element '{e.elem_id}' text {len(e.text)} chars "
+                                f"exceeds {_MAX_TEXT_CHARS} cap"),
+                })
+            # ── table size cap ──
+            if e.ctype == "table":
+                headers = e.table_headers or []
+                rows = [r for r in (e.table_rows or []) if isinstance(r, (list, tuple))]
+                if len(rows) != len(e.table_rows or []):
+                    diags.append({
+                        "slide": slide_idx, "phase": "input", "kind": "invalid_table_row",
+                        "severity": "warning", "elem_id": e.elem_id,
+                        "message": f"table '{e.elem_id}' has non-list rows — skipped",
+                    })
+                n_cols = max(len(headers), max((len(r) for r in rows), default=0))
+                n_rows = len(rows)
+                if n_rows > _MAX_TABLE_ROWS or n_cols > _MAX_TABLE_COLS:
+                    diags.append({
+                        "slide": slide_idx, "phase": "input", "kind": "table_too_large",
+                        "severity": "warning", "elem_id": e.elem_id,
+                        "rows": n_rows, "cols": n_cols,
+                        "cap_rows": _MAX_TABLE_ROWS, "cap_cols": _MAX_TABLE_COLS,
+                        "message": (f"table '{e.elem_id}' is {n_rows}×{n_cols} — "
+                                    f"capped at {_MAX_TABLE_ROWS}×{_MAX_TABLE_COLS}"),
+                    })
+                    if headers:
+                        e.table_headers = headers[:_MAX_TABLE_COLS]
+                    e.table_rows = [r[:_MAX_TABLE_COLS] for r in rows][:_MAX_TABLE_ROWS]
+            # ── image path static validation ──
+            if e.ctype == "image" and e.image_path:
+                self._check_image_path(e, slide_idx, diags)
+
+        # ── arrow references must point at existing element ids ──
+        keep: list = []
+        for a in spec.arrows:
+            if a.from_elem not in elem_ids or a.to_elem not in elem_ids:
+                diags.append({
+                    "slide": slide_idx, "phase": "input", "kind": "invalid_arrow_ref",
+                    "severity": "warning", "arrow_id": a.deco_id,
+                    "from": a.from_elem, "to": a.to_elem,
+                    "message": (f"arrow '{a.deco_id}' references missing element(s) "
+                                f"{a.from_elem}→{a.to_elem} — skipped"),
+                })
+            else:
+                keep.append(a)
+        spec.arrows = keep
+        return diags
+
+    def _check_image_path(self, e: _Spec, slide_idx: int, diags: list[dict]) -> None:
+        """Static image checks — missing file / bad extension / oversized. The
+        renderer also degrades gracefully (see _render_slide)."""
+        p = e.image_path
+        kind_msg = ""
+        if not os.path.isfile(p):
+            kind_msg = "file not found"
+        else:
+            ext = os.path.splitext(p)[1].lower()
+            if ext not in _IMAGE_EXTENSIONS:
+                kind_msg = (f"unsupported extension '{ext}' "
+                            f"(allowed: {', '.join(sorted(_IMAGE_EXTENSIONS))})")
+            else:
+                try:
+                    if os.path.getsize(p) > _IMAGE_MAX_BYTES:
+                        kind_msg = f"file too large (> {_IMAGE_MAX_BYTES // (1024 * 1024)}MB)"
+                except OSError:
+                    kind_msg = "unreadable file"
+        if kind_msg:
+            diags.append({
+                "slide": slide_idx, "phase": "input", "kind": "image_invalid",
+                "severity": "warning", "elem_id": e.elem_id, "image_path": p,
+                "message": f"image '{e.elem_id}' ({p}): {kind_msg}",
+            })
 
     def _title_pt_for(self, style: str) -> float:
         return 28.0
@@ -544,7 +729,7 @@ class PPTBuilder:
             diags.append(_diag(i, "2.5", ci))
 
         # Aesthetics (WCAG floor)
-        diags.extend(self._run_aesthetics(c, plan))
+        diags.extend(self._run_aesthetics(c, plan, i))
 
         # Color triangle: bg ↔ text ↔ fill constraint system (Phase 3.0)
         tri_elems = []
@@ -627,6 +812,7 @@ class PPTBuilder:
 
         self.diff_log.roll()
         diags: list[dict] = []
+        diags.extend(self._validate_slide_input(slide_idx, spec))  # T10 input hardening
 
         plan.validate(verbose=False)
         for d in plan.diagnostics:
@@ -637,8 +823,9 @@ class PPTBuilder:
 
         if prs is not None:
             cap_state = {"n": 0, "format": self.caption_format()}
-            _render_slide(prs, c, self._t, slide_index=slide_idx, total_slides=len(self._slides),
-                          caption_state=cap_state, slide_spec=spec)
+            diags.extend(_render_slide(prs, c, self._t, slide_index=slide_idx,
+                                       total_slides=len(self._slides),
+                                       caption_state=cap_state, slide_spec=spec) or [])
         self.diff_log.snap_after(plan, slide_idx)
 
         errs = [d for d in diags if d.get("severity") in ("error",)]
@@ -872,6 +1059,7 @@ class PPTBuilder:
             "geometry_ok": len(errs) == 0 and len(rt_errors) == 0,
             "harmony_ok": _harmony_ok(all_diags),
             "diagnostics": aggregated_diags,
+            "page_summaries": agg_stats.get("page_summaries", []),
             "raw_diagnostic_count": agg_stats["raw_count"],
             "collapsed": {"dedup": agg_stats["dedup"],
                           "batch": agg_stats["batch"],
@@ -914,6 +1102,7 @@ class PPTBuilder:
             plan = self._plan(spec); c = GridCanvas(GridConfig()); c.checkpoint()
 
             diags: list[dict] = []
+            diags.extend(self._validate_slide_input(i, spec))  # T10 input hardening
 
             # Phase 0.5: region boundary validation
             plan.validate(verbose=False)
@@ -924,9 +1113,10 @@ class PPTBuilder:
             execute_phase1(plan, c)
             self._pipeline_stages(i, plan, c, diags)
 
-            # Fix #2: Render with smart layout selection
-            _render_slide(prs, c, self._t, slide_index=i, total_slides=total_slides,
-                          slide_spec=spec)
+            # Fix #2: Render with smart layout selection (returns render-time
+            # diagnostics such as image_invalid — a bad image never kills the deck)
+            diags.extend(_render_slide(prs, c, self._t, slide_index=i,
+                                       total_slides=total_slides, slide_spec=spec) or [])
 
             self.diff_log.snap_after(plan, i)
 
@@ -981,6 +1171,7 @@ class PPTBuilder:
                 "harmony_ok": harmony_ok,
                 "human_override_warning": human_override_warning,
                 "diagnostics": aggregated_diags,
+                "page_summaries": agg_stats.get("page_summaries", []),
                 "design_hints": design_hints,
                 "build_number": self._breaker.build_count,
                 "hard_blocked": hard_blocked,
@@ -1173,8 +1364,8 @@ class PPTBuilder:
                 cached_h, cached_plan, cached_canvas, cached_diags = self._pipeline_cache.get(i, (None, None, None, None))
                 if cached_h == h and cached_plan is not None and cached_canvas is not None:
                     # Cache hit: reuse pipeline results, just re-render
-                    _render_slide(prs, cached_canvas, self._t, slide_index=i, total_slides=total_slides,
-                                  slide_spec=spec)
+                    all_diags.extend(_render_slide(prs, cached_canvas, self._t, slide_index=i,
+                                                   total_slides=total_slides, slide_spec=spec) or [])
                     all_diags.extend(cached_diags or [])
                     # Update cache with fresh slide XML
                     self._pipeline_cache[i] = (h, cached_plan, cached_canvas, cached_diags)
@@ -1186,6 +1377,7 @@ class PPTBuilder:
             c.checkpoint()
 
             diags: list[dict] = []
+            diags.extend(self._validate_slide_input(i, spec))  # T10 input hardening
 
             plan.validate(verbose=False)
             for d in plan.diagnostics:
@@ -1194,8 +1386,8 @@ class PPTBuilder:
             execute_phase1(plan, c)
             self._pipeline_stages(i, plan, c, diags)
 
-            _render_slide(prs, c, self._t, slide_index=i, total_slides=total_slides,
-                          slide_spec=spec)
+            diags.extend(_render_slide(prs, c, self._t, slide_index=i,
+                                       total_slides=total_slides, slide_spec=spec) or [])
             self.diff_log.snap_after(plan, i)
 
             # Cache pipeline results
@@ -1238,6 +1430,7 @@ class PPTBuilder:
             "harmony_ok": harmony_ok,
             "human_override_warning": human_override_warning,
             "diagnostics": aggregated_diags,
+            "page_summaries": agg_stats.get("page_summaries", []),
             "design_hints": design_hints,
             "build_number": self._breaker.build_count,
             "hard_blocked": hard_blocked,
@@ -1313,15 +1506,19 @@ class PPTBuilder:
         # are pre-resolved by the design-token layer; explicit args still win.
         if recipe:
             from ppt_reflex.grid.design_tokens import resolve_recipe
-            rec = resolve_recipe(recipe)
+            rec = resolve_recipe(recipe, getattr(self, "_style_palette", None))
             if shape_id is None and rec.get("shape"):
                 shape_id = rec["shape"]
             if fill_color is None:
                 c = rec.get("fill")
                 if isinstance(c, str) and c.startswith("#"):
                     fill_color = _hex_to_rgb(c)
-            if corner_radius is None and isinstance(rec.get("radius"), (int, float)):
-                corner_radius = rec["radius"]
+            if corner_radius is None:
+                cr = rec.get("corner_radius_pt")
+                if not isinstance(cr, (int, float)):
+                    cr = rec.get("radius")
+                if isinstance(cr, (int, float)):
+                    corner_radius = cr
             if align_h == "left" and rec.get("align"):
                 align_h = str(rec["align"]).lower()
         if shape_id is None:
@@ -1528,9 +1725,17 @@ class PPTBuilder:
         if "font_name" not in s or not s["font_name"]:
             s["font_name"] = self._style_body_font or t.body_font
 
-        # Dark fill -> white text
-        if fill_color and _is_dark(fill_color):
-            s["font_color"] = (0xFF, 0xFF, 0xFF)
+        # Dark fill -> white text; light fill -> ink (not template text color).
+        # Previously the ink direction was skipped: a dark deck kept its light
+        # text_hex on light card fills and vice versa.
+        if fill_color:
+            if _is_dark(fill_color):
+                s["font_color"] = (0xFF, 0xFF, 0xFF)
+            else:
+                palette = getattr(self, "_style_palette", None)
+                ink = (palette or {}).get("ink")
+                if ink and _is_dark(_hex_to_rgb(ink)):
+                    s["font_color"] = _hex_to_rgb(ink)  # dark ink on light fill
 
         return s
 
@@ -1593,6 +1798,7 @@ class PPTBuilder:
                           f"falling back to family default")
 
             p = ElementPayload(
+                id=e.elem_id,           # deck 元素 id 透传（runner 覆写后即 deck id）
                 role=declared_role,
                 text=e.text,
                 style_name=e.style if e.style != "__shape_inline__" else "",
@@ -1665,7 +1871,7 @@ class PPTBuilder:
             "style_id": self._style_id,
         }
 
-    def _run_aesthetics(self, canvas, plan) -> list[dict]:
+    def _run_aesthetics(self, canvas, plan, slide_idx: int | None = None) -> list[dict]:
         """Run AestheticsEngine and return structured diagnostics."""
         engine = AestheticsEngine()
         elems = []
@@ -1695,7 +1901,13 @@ class PPTBuilder:
                                   ctx={"max_elements": self._t.max_elements_per_slide,
                                        "max_chars": self._t.max_chars_per_slide,
                                        "max_colors": self._t.max_colors})
-        return [_ae_violation_to_diag(v) for v in violations]
+        out = [_ae_violation_to_diag(v) for v in violations]
+        # 问题#3 前置：aesthetics 是唯一缺 slide 的诊断源 —— 补上页码，逐页摘要
+        # 才能按 slide 归组（no_pure_white_bg / tight_gap 等映射才可达）。
+        if slide_idx is not None:
+            for d in out:
+                d["slide"] = slide_idx
+        return out
 
 
 def _layout_fingerprint(plan) -> str:
@@ -1829,7 +2041,8 @@ def _aggregate_diagnostics(diags: list[dict]) -> tuple[list[dict], dict]:
     """
     empty_stats = {"raw_count": 0, "errors": 0, "warnings": 0, "info": 0,
                    "advisories": 0, "dedup": 0, "batch": 0,
-                   "trimmed_warnings": 0, "trimmed_info": 0, "final_count": 0}
+                   "trimmed_warnings": 0, "trimmed_info": 0, "final_count": 0,
+                   "page_summaries": []}
     if not diags:
         return [], empty_stats
 
@@ -1910,6 +2123,11 @@ def _aggregate_diagnostics(diags: list[dict]) -> tuple[list[dict], dict]:
         "trimmed_info": trimmed_i,
         "final_count": len(aggregated),
     }
+
+    # 问题#3: 聚合完成后按 slide 分组生成每页一句话摘要（新增字段 page_summaries，
+    # 只增不改现有字段）。基于原始 diags + 页内 (elem_id, kind) 去重 ——
+    # batch 折叠会把 slide 信息丢掉，逐页真实计数才是 agent 取舍的依据。
+    stats["page_summaries"] = _build_page_summaries(diags)
     return aggregated, stats
 
 
@@ -1919,6 +2137,150 @@ def _phase_rank(phase: str) -> int:
         return _PHASE_ORDER.index(phase)
     except ValueError:
         return 99  # unknown phases rank last (most recent)
+
+
+# ── 问题#3: 每页一句话摘要 — kind/rule → 摘要词（写死；逐一对照真实 kind 来源：
+# grid/composition.py、grid/aesthetics.py、grid/text_metrics.py、roundtrip_check.py）──
+
+# 未命中具体映射的 kind 按"几何 / 美学"两类兜底（真实 kind 词表，禁止编造）
+_GEOMETRY_FALLBACK_KINDS = frozenset({
+    "whitespace", "balance", "alignment", "visual_chunks", "edge_safe_zone",
+    "overlap", "arrow_occlusion",
+    "invalid_region", "invalid_table_row", "table_too_large", "invalid_arrow_ref",
+    "text_too_long", "too_many_elements", "image_invalid", "region_out_of_page",
+    "validation_error", "validation_warning", "invalid_index", "advisory",
+})
+_AESTHETICS_FALLBACK_KINDS = frozenset({
+    "font_hierarchy", "font_variety", "chroma_families",
+    "color_contrast", "invisible_text", "text_fill_near_match",
+    "dark_bg_dark_text", "light_bg_light_text", "no_black_bg",
+    "near_black_text", "pure_white_text", "max_colors",
+    "font_abs_min", "font_rec_min", "autofit_tiny", "autofit_past_canvas",
+    "autofit_expand_large", "autofit_expand", "edge_margin",
+    "density", "too_many", "too_much_text",
+})
+
+# 摘要短语 → 建议尾巴（每页只挂优先级最高的一条，保持一句话）
+_PAGE_SUGGESTION_TAIL = {
+    "无视觉焦点": "建议设唯一主标题/主图",
+    "间距偏紧": "建议调 density",
+    "色彩比例偏离 60-30-10": "建议收敛到 60-30-10 色带",
+    "色相和谐度不足": "建议统一色相",
+    "图片主色与色板冲突": "建议换图或放宽色板",
+    "纯白背景": "建议改用模板底色",
+    "几何问题": "建议检查几何布局",
+    "美学问题": "建议调整视觉风格",
+}
+_PAGE_SUGGESTION_PRIORITY = ("无视觉焦点", "间距偏紧", "色彩比例偏离 60-30-10",
+                             "色相和谐度不足", "图片主色与色板冲突", "纯白背景",
+                             "几何问题", "美学问题")
+
+
+def _page_summary_phrase(d: dict) -> str:
+    """kind/rule → 摘要词。规则与诊断真实 kind 一一对应。"""
+    kind = str(d.get("kind", "") or "").lower()
+    rule = str(d.get("rule", "") or "").lower()
+    # overflow_*（overflow_vertical/horizontal/h/v + silent_overflow/tight_fit 变体）
+    # 与 tight_gap → 间距偏紧
+    if kind.startswith("overflow") or kind in ("tight_gap", "tight_fit", "silent_overflow"):
+        return "间距偏紧"
+    if kind == "no_pure_white_bg":
+        return "纯白背景"  # 归并说明：并入页面说明，不单列计数
+    # focal_point.missing（signal）+ focal_point.ambiguous/split（warning）→ 无焦点
+    if kind == "focal_point" or rule.startswith("focal_point"):
+        return "无视觉焦点"
+    if kind == "color_ratio":
+        return "色彩比例偏离 60-30-10"
+    if kind == "hue_harmony":
+        return "色相和谐度不足"
+    if kind == "image_style_conflict":
+        return "图片主色与色板冲突"
+    if kind in _GEOMETRY_FALLBACK_KINDS:
+        return "几何问题"
+    if kind in _AESTHETICS_FALLBACK_KINDS or kind.startswith("tri_"):
+        return "美学问题"
+    return "几何问题"  # 未知 kind 保守归几何
+
+
+def _dedup_slide_diags(items: list[dict]) -> list[dict]:
+    """页内去重：(elem_id, kind) 保留后相位（与聚合器 Rule 2 同语义，避免同一
+    元素跨阶段重复计入逐页摘要）。"""
+    seen: dict[tuple, dict] = {}
+    for d in items:
+        key = (d.get("elem_id", "") or "", d.get("kind", "") or "")
+        prev = seen.get(key)
+        if prev is not None and _phase_rank(prev.get("phase", "0")) > _phase_rank(d.get("phase", "0")):
+            continue
+        seen[key] = d
+    return list(seen.values())
+
+
+def _build_page_summaries(diags: list[dict]) -> list[dict]:
+    """问题#3: 聚合完成后按 slide 分组，生成每页一句话摘要（[{slide, summary}]）。
+
+    - 只统计 error/warning/advisory；info 不进计数。
+    - signals（advisory）只进"建议"，永不进"必须修复"。
+    - 全绿页（无 error/warning/advisory）不输出。
+    - slide 字段 0-based（与 diagnostics 一致）；正文"第 N 页"用 N+1（人读）。
+    """
+    by_slide: dict[int, list[dict]] = {}
+    for d in diags:
+        s = d.get("slide")
+        if not isinstance(s, int):
+            continue  # 无页码归属（聚合器不猜测页码）
+        by_slide.setdefault(s, []).append(d)
+
+    out: list[dict] = []
+    for s in sorted(by_slide):
+        page = by_slide[s]
+        errs = [d for d in page if d.get("severity") == "error"]
+        warns = [d for d in page if d.get("severity") in ("warning", "warn")]
+        advis = [d for d in page if d.get("severity") == "advisory" or d.get("channel") == "signal"]
+        if not (errs or warns or advis):
+            continue  # 全绿页不输出
+
+        # 建议项 = warning + advisory（advisory 永不进入"必须修复"）
+        sugg = _dedup_slide_diags(warns + advis)
+
+        phrases: dict[str, int] = {}
+        for d in sugg:
+            p = _page_summary_phrase(d)
+            phrases[p] = phrases.get(p, 0) + 1
+
+        # 正文：focal 特例不计数（直接给结论），其余取 top 2 短语计数
+        parts = []
+        focus = phrases.pop("无视觉焦点", 0)
+        if focus:
+            parts.append("无焦点")
+        top = sorted(phrases.items(), key=lambda kv: -kv[1])[:2]
+        for phrase, cnt in top:
+            parts.append(f"{cnt} 个{phrase}")
+        body = "、".join(parts)
+
+        # 严重度分离：必须修复（error） vs 建议（warning + advisory）
+        sev = ""
+        if errs and sugg:
+            sev = f"本页 {len(errs)} 个必须修复 + {len(sugg)} 个建议"
+        elif errs:
+            sev = f"本页 {len(errs)} 个必须修复"
+        elif sugg:
+            sev = f"{len(sugg)} 个建议"
+
+        sentence = f"第 {s + 1} 页"
+        if body:
+            sentence += f"：{body}"
+        if sev:
+            sentence += ("；" if body else "：") + sev
+        tail = None
+        for phrase in _PAGE_SUGGESTION_PRIORITY:
+            if phrase in phrases or (phrase == "无视觉焦点" and focus):
+                tail = _PAGE_SUGGESTION_TAIL[phrase]
+                break
+        if tail:
+            sentence += f"，{tail}"
+
+        out.append({"slide": s, "summary": sentence})
+    return out
 
 
 def _diag(slide_idx, phase, d, kind="", severity="", deco_id="", elem_id="", message=""):
@@ -2009,12 +2371,17 @@ def _render_slide_deco(slide, page_w_pt, page_h_pt, spec, template) -> None:
 
 
 def _render_slide(prs, canvas, template, slide_index=0, total_slides=1,
-                  caption_state: dict | None = None, slide_spec=None):
-    """Grid-to-PPT full slide render: background + decoration skins + info layer + page number."""
+                  caption_state: dict | None = None, slide_spec=None) -> list[dict]:
+    """Grid-to-PPT full slide render: background + decoration skins + info layer + page number.
+
+    Returns render-time diagnostics (e.g. image_invalid when a single image fails
+    to render — the deck continues, it never crashes on one bad image).
+    """
     from pptx.util import Pt, Emu
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
 
+    render_diags: list[dict] = []
     layout_idx = 0
     try:
         layout_count = len(prs.slide_layouts)
@@ -2063,7 +2430,17 @@ def _render_slide(prs, canvas, template, slide_index=0, total_slides=1,
             _render_table(slide, x, y, w, h, payload, template)
         elif ct == ContentType.IMAGE and payload and payload.image_path:
             # Contain-fit image rendering: PIL natural size -> contain -> no crop, no stretch
-            _render_image(slide, x, y, w, h, payload)
+            try:
+                _render_image(slide, x, y, w, h, payload)
+            except Exception as ex:
+                # T10 bad-image degradation: one failed image becomes a structured
+                # diagnostic; the rest of the deck keeps building.
+                render_diags.append({
+                    "slide": slide_index, "phase": "render", "kind": "image_invalid",
+                    "severity": "warning", "elem_id": pe, "image_path": payload.image_path,
+                    "message": (f"image '{pe}' ({payload.image_path}) render failed: "
+                                f"{type(ex).__name__}: {ex}"),
+                })
             # Optional caption — 按 style preset 的 caption 约定渲染（前缀/对齐/字号），
             # 前缀含 "N" 时自动编号（"Figure N. " → "Figure 1. "），兑现学术主题的
             # captions_must_be_numbered 契约（旧版约定存在但从未被使用）
@@ -2123,6 +2500,8 @@ def _render_slide(prs, canvas, template, slide_index=0, total_slides=1,
     pn.text_frame.paragraphs[0].font.size = Pt(template.page_number_size)
     pn.text_frame.paragraphs[0].font.color.rgb = RGBColor(*_hex_to_rgb(template.dim_hex)) if template.dim_hex else RGBColor(0x88, 0x88, 0x99)
     pn.text_frame.paragraphs[0].alignment = PP_ALIGN.RIGHT
+
+    return render_diags
 
 
 # ── P1-② Table rendering ──

@@ -1,0 +1,41 @@
+{
+  "id": "gb_content_corporate",
+  "kind": "beautiful",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "content: agenda bullets + sidebar card (recipe=card, neutral fill).",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Agenda",
+      "archetype": "content",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Agenda"
+        },
+        {
+          "type": "bullet",
+          "text": "First point"
+        },
+        {
+          "type": "bullet",
+          "text": "Second point"
+        },
+        {
+          "type": "bullet",
+          "text": "Third point"
+        },
+        {
+          "type": "box",
+          "text": "Sidebar note",
+          "recipe": "card"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "id": "gb_gov_conclusion_academic",
+  "kind": "beautiful",
+  "template": "academic",
+  "style": "government_solemn",
+  "strict_tokens": true,
+  "note": "government solemn briefing conclusion.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Brief",
+      "archetype": "conclusion",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Summary"
+        },
+        {
+          "type": "text",
+          "text": "Key takeaway"
+        }
+      ]
+    }
+  ]
+}

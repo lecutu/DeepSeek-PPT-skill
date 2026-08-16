@@ -49,6 +49,7 @@ AI 读诊断、改声明、重跑。`CircuitBreaker`（熔断器）盯着机械�
 ```
 
 **不是"AI 生成、人来修"，而是"AI 声明、引擎计算、AI 读结果、AI 决策、循环"。** 每个 LLM 都能读 JSON。这就是全部诀窍。
+**设计哲学——引擎说 AI 的语言。** 声明层刻意与 HTML/CSS 心智模型同构：这是无视觉模型最深的肌肉记忆。`grid_cards` 读起来像 CSS Grid，`fit_mode` 接受 `contain`/`cover`（对应 `object-fit`），`density` 接受 `comfortable`/`spacious`，`recipe` 像组件 class。**这不是 HTML→PPTX 转换**——没有任何东西从 HTML 渲染；引擎只是借用这套词汇，让盲 LLM 用已有的前端知识驱动布局。映射只存在于一处：`ppt_reflex/grid/agent_vocabulary.py`。
 
 ## 特性
 
@@ -59,6 +60,9 @@ AI 读诊断、改声明、重跑。`CircuitBreaker`（熔断器）盯着机械�
 - **三层 ASCII 反馈。** `L0` 结构图（区域、皮肤、大色块）· `L1` 元素图（每个元素一个字母，`#` 重叠、`!` 溢出）· `L2` 文本数值表（字号、行数、高度、溢出 pt）。
 - **有保障的修复循环。** AI 先声明修法方向（`b.declare_direction("split_slide")`）再重跑。`CircuitBreaker` 逐级升级：同方向两次 → WARN，三次 → BLOCK；三种不同机械微调 → BLOCK；错误数停滞 → "停止微调"。
 - **实时可视化（DSH 插件）。** `shell.overlay` 面板逐页预览构建过程，逐元素帧实时推送。可点选元素、拖拽框选、请求改色、反馈问题。
+- **两级正确性地板。** `geometry_ok`（零几何错误）与 `harmony_ok`（零美学规则违规）——两者都是可验证的地板，不是品味。天花板是面板前的人。
+- **和谐规则，OKLCH 度量。** 60-30-10 面积色彩比、焦点唯一性、色相和谐（单色/邻近/互补/三角）——全部在 OKLCH 度量，阈值集中在 `grid/rules.json`。
+- **入口纪律。** `PPTBuilder(strict_tokens=True)`（默认开）以 `raw_color_forbidden` 拒绝裸色与手写坐标；人类面板路径豁免——人是天花板，可以越界（越界导致的对比度问题以 `human_override_warning` 呈现，不阻塞）。
 - **审美裁判权在人。** 色盘、hex、预设都是人工资产。引擎只守*客观*底线——WCAG AA 对比度（≥ 4.5:1）与可读性——从不假装自己有品味。
 - **设计 token + recipe 是人工资产。** `tokens.json` / `recipes.json` 保存分级数值（间距、圆角、阴影、字号阶梯、颜色）与命名组件（`card`、`kpi`、`quote`）。AI 只引用*层级名*，绝不手写数值；数值由人拥有。
 
@@ -74,6 +78,19 @@ AI 读诊断、改声明、重跑。`CircuitBreaker`（熔断器）盯着机械�
 | **ASCII 分层反馈** | `L0`/`L1`/`L2` —— 结构、元素、文本数值精度。 |
 | **渲染钩子** | `set_render_frame_hook(fn)` 在绘制前逐元素触发 —— 流式预览的桥。 |
 | **DSH 插件桥** | `_dsh_ppt_runner.py` —— stdin JSON 进、result JSON 出，附带流式帧与 ASCII。 |
+
+## harmony pass 新变化
+
+| 变化 | 含义 |
+|:--|:--|
+| OKLCH 色彩核心 | `grid/oklch.py` —— sRGB↔OKLCH、色相距离、chroma/lightness 辅助 |
+| 双通道诊断 | violations → `error`/`warning`（阻塞 `ok`）；signals → `advisory`（永不裁剪、永不批量折叠） |
+| 面积色彩比 | 60-30-10 容差带按填充面积计；图片经 PIL 主色入账（`image_style_conflict` signal） |
+| 焦点唯一性 | 每页有且仅有一个视觉焦点（`focal_point.missing` / `split` / `ambiguous`） |
+| 色相和谐 | 单色/邻近/互补/三角，全部 OKLCH 度量；同页高彩度族 ≤2 |
+| 入口纪律 | `strict_tokens=True` 默认开；agent 可见 docstring 已重写为无裸色、无手写坐标 |
+| CSS 同构词表 | `contain`/`cover`、`comfortable`/`spacious`、`radius` 别名；CSS 幻觉明确拒绝并给替代 |
+| 区域诊断 | `inspect_slide(idx, elem_ids)` + `runner --inspect` —— 纯内存，T5 一致 schema |
 
 ## 快速开始
 
@@ -161,7 +178,7 @@ python _dsh_ppt_runner.py < deck_request.json
 
 ## DSH 插件工作流
 
-DSH 插件是一个**动态（会话级）Cordis 插件**。它为当前会话激活，进程重启后需重新激活；持久化到 host composition 已列入路线图。
+DSH 插件是**host 组合级 Cordis 插件**：它位于 profile 的 bundle 与 patch 层，且同一 profile 由 Web harness 与 DSH Desktop harness 共享——装一份，双端生效。`slideReflex` 服务由 host 层提供；agent 预设（`ppt-maker`）只通过 client Gate 圈定面板显示范围，不再重复挂载插件。
 
 对话流是一个闭环：
 
@@ -234,7 +251,8 @@ fix_slide() / rebuild() ──►  再次预览
 
 ## 路线图
 
-- **把 DSH 插件持久化**进 host composition（目前是会话级动态插件）。
+- **golden-set 回归（T6）** —— 建立 ≥10 美 + ≥10 丑 deck 基线（各带应过/应拦规则），`make golden` 对 `tests/golden/baseline.json` 输出通过率/拦截率 diff，任一指标下降即失败；`rules.json` 阈值变更必须跑它。
+- **从真实反馈蒸馏 golden 素材** —— `_feedback_auto.json` 历史里用户说"丑"=负样本、验收通过的 deck=正样本，由 `tools/golden_harvest.py` 实现。
 - **更多 recipe 与 token** —— 扩充人工资产层（`kpi` 变体、数据表 recipe）。
 - **更多参数化原语** —— 把 `columns`/`gap`/`density` 式参数带到更多 archetype。
 - **参考 PPTX 布局抽取** —— `layout_extractor.py` 已能从现有 deck 推断区域；接入 `register_archetype()`。

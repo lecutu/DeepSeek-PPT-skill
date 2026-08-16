@@ -1,0 +1,29 @@
+{
+  "id": "gu_focal_ambiguous_blank",
+  "kind": "ugly",
+  "template": "academic",
+  "style": null,
+  "strict_tokens": false,
+  "note": "双最大字号 (blank canvas, fully declarative): two titles at the same size.",
+  "expected": {
+    "blocks": [
+      "focal_point.ambiguous"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "blank",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Title A"
+        },
+        {
+          "type": "title",
+          "text": "Title B"
+        }
+      ]
+    }
+  ]
+}

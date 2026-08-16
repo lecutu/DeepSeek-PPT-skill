@@ -1,0 +1,28 @@
+{
+  "id": "gb_conclusion_corporate",
+  "kind": "beautiful",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "conclusion/CTA.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Close",
+      "archetype": "conclusion",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Thank You"
+        },
+        {
+          "type": "text",
+          "text": "Questions welcome"
+        }
+      ]
+    }
+  ]
+}

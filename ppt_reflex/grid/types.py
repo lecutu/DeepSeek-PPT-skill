@@ -260,6 +260,7 @@ class InfoCell:
 @dataclass
 class ElementPayload:
     """AI 填的渲染负载。role 是语义理解的外化——引擎据此决定碰撞规则。"""
+    id: str | None = None             # deck 元素 id 透传（无 id 时 None，帧输出回退 elem_id）
     role: SemanticRole | None = None  # None = AI 未指定；引擎用族扶手补
 
     # ── 文本 ──

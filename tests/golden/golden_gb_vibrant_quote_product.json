@@ -1,0 +1,28 @@
+{
+  "id": "gb_vibrant_quote_product",
+  "kind": "beautiful",
+  "template": "product",
+  "style": "creative_vibrant",
+  "strict_tokens": true,
+  "note": "creative_vibrant quote with attribution.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Q",
+      "archetype": "quote",
+      "elements": [
+        {
+          "type": "title",
+          "text": "A bold line"
+        },
+        {
+          "type": "subtitle",
+          "text": "— author"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "gb_data_showcase_corporate",
+  "kind": "beautiful",
+  "template": "data_report",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "data_showcase: table front-and-center (engine-drawn header uses accent).",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Metrics",
+      "archetype": "data_showcase",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Metrics"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "A",
+            "B",
+            "C"
+          ],
+          "rows": [
+            [
+              "1",
+              "2",
+              "3"
+            ],
+            [
+              "4",
+              "5",
+              "6"
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

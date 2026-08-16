@@ -92,12 +92,16 @@ def get_token(category: str, level: str):
     return tier[level]
 
 
-def resolve_recipe(name: str) -> dict:
+def resolve_recipe(name: str, color_map: dict | None = None) -> dict:
     """Expand a recipe into final parameter values.
 
     Every field whose key is a known token reference is looked up in its token
     category, replacing the level name with the concrete value (number, hex string,
     or shadow dict). Literal fields (e.g. "shape") pass through unchanged.
+
+    color_map: optional {"token_level": hex} remap applied to color fields —
+    the builder passes the resolved style-preset surface/border/muted map so
+    dark themes don't inherit the default light palette from tokens.json.
 
     Raises KeyError on an unknown recipe name, or on a token reference that points
     at an unknown level.
@@ -112,6 +116,9 @@ def resolve_recipe(name: str) -> dict:
         category = _TOKEN_KEY_CATEGORY.get(field)
         if category is None:
             resolved[field] = ref  # literal passthrough (shape name etc.)
+            continue
+        if category == "color" and color_map and ref in color_map:
+            resolved[field] = color_map[ref]
             continue
         tier = tokens[category]
         if ref not in tier:

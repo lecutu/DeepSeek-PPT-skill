@@ -1,0 +1,67 @@
+{
+  "anchor": {
+    "hue": 295,
+    "chroma": 0.13,
+    "lightness": 0.34,
+    "density": "compact",
+    "radius": "none",
+    "weight": "bold",
+    "scale_ratio": 1.414
+  },
+  "tokens": {
+    "color": {
+      "primary": "oklch(0.34 0.13 295)",
+      "secondary": "oklch(0.24 0.09 295)",
+      "accent": "oklch(0.88 0.21 130)",
+      "bg": "oklch(0.12 0.035 295)",
+      "text": "oklch(0.9 0.015 295)"
+    },
+    "type": {
+      "display": 31.99,
+      "title": 22.62,
+      "body": 16,
+      "caption": 11.32
+    },
+    "space": {
+      "sm": 8,
+      "md": 16,
+      "lg": 32
+    }
+  },
+  "meta": {
+    "anchor_word": "acid-grid",
+    "temperament": [
+      "先锋",
+      "高彩度",
+      "大字阶"
+    ],
+    "domains": [
+      "科技",
+      "发布会",
+      "极客"
+    ],
+    "skin_compat": {
+      "radius": [
+        "none",
+        "sm"
+      ],
+      "density": [
+        "compact"
+      ],
+      "weight": [
+        "bold"
+      ]
+    }
+  },
+  "gaps": [
+    "判定口径·radius：规范未定义 px↔档位阈值，按 0→none / 1–8→sm / 9–20→md / ≥21→full 判定（999px 胶囊视为 full）",
+    "判定口径·density：规范未定义加权公式，按 卡片 padding 均值 与 card-grid gap 的简单平均 判定",
+    "判定口径·scale_ratio：display/title 与 title/body 的几何均值，四舍五入到 {1.125,1.25,1.333,1.414} 最近档",
+    "60-30-10 面积比为设计意图估计值，未做像素级统计验证（蒸馏规则仅按区域用途判定主辅点缀）"
+  ],
+  "risks": [
+    "酸绿点缀在深底上视觉冲击强，PPT 大面积使用会疲劳",
+    "错位对齐需要逐页微调，模板化难度高",
+    "紧凑密度（16px）在中文排版下易显拥挤"
+  ]
+}

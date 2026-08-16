@@ -1,0 +1,48 @@
+{
+  "id": "gu_focal_ambiguous_regions",
+  "kind": "ugly",
+  "template": "academic",
+  "style": null,
+  "strict_tokens": true,
+  "note": "双最大字号: two Heading elements tie for the largest font size (title_size) → focal_point.ambiguous. Manual regions keep them apart so geometry stays clean; still a strict-mode (token-safe) ugly deck.",
+  "expected": {
+    "blocks": [
+      "focal_point.ambiguous"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "regions": [
+        [
+          "a",
+          60,
+          60,
+          400,
+          100,
+          1
+        ],
+        [
+          "b",
+          500,
+          60,
+          400,
+          100,
+          1
+        ]
+      ],
+      "elements": [
+        {
+          "type": "title",
+          "text": "Title A",
+          "region": "a"
+        },
+        {
+          "type": "title",
+          "text": "Title B",
+          "region": "b"
+        }
+      ]
+    }
+  ]
+}

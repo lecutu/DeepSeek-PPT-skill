@@ -1,0 +1,37 @@
+{
+  "id": "gu_focal_split",
+  "kind": "ugly",
+  "template": "academic",
+  "style": null,
+  "strict_tokens": false,
+  "note": "focal_point.split: unique max (title 28pt) PLUS a second element ≥1.5× the mean of the others (shape 26pt vs mean 16pt) — attention split between two candidates.",
+  "expected": {
+    "blocks": [
+      "focal_point.split"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "blank",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Big title"
+        },
+        {
+          "type": "shape",
+          "shape_id": "rounded_rectangle",
+          "text": "A",
+          "font_size": 26
+        },
+        {
+          "type": "shape",
+          "shape_id": "rounded_rectangle",
+          "text": "b",
+          "font_size": 6
+        }
+      ]
+    }
+  ]
+}

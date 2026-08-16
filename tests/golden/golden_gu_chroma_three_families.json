@@ -1,0 +1,48 @@
+{
+  "id": "gu_chroma_three_families",
+  "kind": "ugly",
+  "template": "academic",
+  "style": null,
+  "strict_tokens": false,
+  "note": "chroma_families: three high-chroma families (C > 0.15) on one slide — cap is 2. red/green/blue are mutually triadic in OKLCH so hue_harmony stays silent.",
+  "expected": {
+    "blocks": [
+      "chroma_families"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "blank",
+      "elements": [
+        {
+          "type": "box",
+          "text": "r",
+          "fill_color": [
+            255,
+            0,
+            0
+          ]
+        },
+        {
+          "type": "box",
+          "text": "g",
+          "fill_color": [
+            0,
+            255,
+            0
+          ]
+        },
+        {
+          "type": "box",
+          "text": "b",
+          "fill_color": [
+            0,
+            0,
+            255
+          ]
+        }
+      ]
+    }
+  ]
+}

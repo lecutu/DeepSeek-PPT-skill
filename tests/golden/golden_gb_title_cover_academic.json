@@ -1,0 +1,28 @@
+{
+  "id": "gb_title_cover_academic",
+  "kind": "beautiful",
+  "template": "academic",
+  "style": "academic_rigorous",
+  "strict_tokens": true,
+  "note": "title_cover: bold title + tagline, academic navy/brick palette. Cleanest possible slide.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Cover",
+      "archetype": "title_cover",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Project Title"
+        },
+        {
+          "type": "subtitle",
+          "text": "A one-line tagline"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "anchor": {
+    "hue": 55,
+    "chroma": 0.085,
+    "lightness": 0.48,
+    "density": "comfortable",
+    "radius": "md",
+    "weight": "medium",
+    "scale_ratio": 1.25
+  },
+  "tokens": {
+    "color": {
+      "primary": "oklch(0.48 0.085 55)",
+      "secondary": "oklch(0.95 0.018 85)",
+      "accent": "oklch(0.62 0.13 40)",
+      "bg": "oklch(0.99 0.004 90)",
+      "text": "oklch(0.3 0.025 55)"
+    },
+    "type": {
+      "display": 25,
+      "title": 20,
+      "body": 16,
+      "caption": 12.8
+    },
+    "space": {
+      "sm": 16,
+      "md": 24,
+      "lg": 48
+    }
+  },
+  "meta": {
+    "anchor_word": "warm-seminar",
+    "temperament": [
+      "亲和",
+      "圆润",
+      "温暖"
+    ],
+    "domains": [
+      "学术",
+      "教育",
+      "培训"
+    ],
+    "skin_compat": {
+      "radius": [
+        "md"
+      ],
+      "density": [
+        "comfortable"
+      ],
+      "weight": [
+        "medium",
+        "regular"
+      ]
+    }
+  },
+  "gaps": [
+    "判定口径·radius：规范未定义 px↔档位阈值，按 0→none / 1–8→sm / 9–20→md / ≥21→full 判定（999px 胶囊视为 full）",
+    "判定口径·density：规范未定义加权公式，按 卡片 padding 均值 与 card-grid gap 的简单平均 判定",
+    "判定口径·scale_ratio：display/title 与 title/body 的几何均值，四舍五入到 {1.125,1.25,1.333,1.414} 最近档",
+    "60-30-10 面积比为设计意图估计值，未做像素级统计验证（蒸馏规则仅按区域用途判定主辅点缀）"
+  ],
+  "risks": [
+    "圆角 16px 在 PPT 矩形构图下可能需按模板统一",
+    "暖色系与品牌色冲突时需人工裁决",
+    "中密度在信息密集页面需要压缩"
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "gu_hue_clash_red_magenta",
+  "kind": "ugly",
+  "template": "academic",
+  "style": null,
+  "strict_tokens": false,
+  "note": "高彩度多色族: red (hue 30°) vs magenta (hue 330°) — 60° apart, not analogous/complementary/triadic → hue_harmony violation.",
+  "expected": {
+    "blocks": [
+      "hue_harmony"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "blank",
+      "elements": [
+        {
+          "type": "box",
+          "text": "a",
+          "fill_color": [
+            255,
+            0,
+            0
+          ]
+        },
+        {
+          "type": "box",
+          "text": "b",
+          "fill_color": [
+            255,
+            0,
+            255
+          ]
+        }
+      ]
+    }
+  ]
+}

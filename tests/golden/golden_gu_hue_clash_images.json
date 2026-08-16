@@ -1,0 +1,55 @@
+{
+  "id": "gu_hue_clash_images",
+  "kind": "ugly",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "hue_harmony via images only (strict agent mode): red + magenta synthetic photos, 60° apart.",
+  "expected": {
+    "blocks": [
+      "hue_harmony"
+    ]
+  },
+  "assets": {
+    "red": {
+      "rgb": [
+        255,
+        0,
+        0
+      ],
+      "size": [
+        240,
+        160
+      ]
+    },
+    "magenta": {
+      "rgb": [
+        255,
+        0,
+        255
+      ],
+      "size": [
+        240,
+        160
+      ]
+    }
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "two_column",
+      "elements": [
+        {
+          "type": "image",
+          "path": "assets/red.png",
+          "region": "left"
+        },
+        {
+          "type": "image",
+          "path": "assets/magenta.png",
+          "region": "right"
+        }
+      ]
+    }
+  ]
+}

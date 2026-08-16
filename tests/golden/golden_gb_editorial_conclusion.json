@@ -1,0 +1,28 @@
+{
+  "id": "gb_editorial_conclusion",
+  "kind": "beautiful",
+  "template": "teaching",
+  "style": "editorial_magazine",
+  "strict_tokens": true,
+  "note": "editorial magazine style conclusion.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Close",
+      "archetype": "conclusion",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Takeaway"
+        },
+        {
+          "type": "text",
+          "text": "One key point"
+        }
+      ]
+    }
+  ]
+}

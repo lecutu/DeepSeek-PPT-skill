@@ -1,0 +1,309 @@
+{
+  "schema": 1,
+  "generated_at": "2026-08-16T22:50:17",
+  "rules_version": "1.0.0",
+  "_note": "golden-set floor. Regenerate with 'python tools/make_golden.py --init' after an INTENTIONAL rules.json threshold change. Any pass_rate / block_rate drop below these values (or a per-case pass->fail flip) fails CI.",
+  "pass_rate": 1.0,
+  "block_rate": 1.0,
+  "n_beautiful": 16,
+  "n_ugly": 12,
+  "cases": {
+    "gb_blank_kpi_minimal": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_comparison_academic": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_conclusion_corporate": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_content_corporate": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_data_showcase_corporate": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gb_editorial_conclusion": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_gov_conclusion_academic": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_grid_cards_corporate": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_hero_gray_minimal": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gb_quote_minimal": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gb_section_teaching": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_tech_cover_product": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_timeline_corporate": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_title_cover_academic": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_two_column_academic": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [],
+      "error": null
+    },
+    "gb_vibrant_quote_product": {
+      "kind": "beautiful",
+      "passed": true,
+      "blocked": false,
+      "expect": null,
+      "fired": [
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gu_chroma_three_families": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "chroma_families"
+      ],
+      "fired": [
+        "color_ratio",
+        "focal_point.ambiguous",
+        "chroma_families"
+      ],
+      "error": null
+    },
+    "gu_color_complementary_1to1": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "color_ratio"
+      ],
+      "fired": [
+        "color_ratio",
+        "focal_point.ambiguous"
+      ],
+      "error": null
+    },
+    "gu_color_images_strict": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "color_ratio"
+      ],
+      "fired": [
+        "color_ratio",
+        "image_style_conflict",
+        "image_style_conflict",
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gu_color_three_even": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "color_ratio"
+      ],
+      "fired": [
+        "color_ratio",
+        "focal_point.ambiguous",
+        "chroma_families"
+      ],
+      "error": null
+    },
+    "gu_focal_ambiguous_blank": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "focal_point.ambiguous"
+      ],
+      "fired": [
+        "focal_point.ambiguous"
+      ],
+      "error": null
+    },
+    "gu_focal_ambiguous_regions": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "focal_point.ambiguous"
+      ],
+      "fired": [
+        "focal_point.ambiguous"
+      ],
+      "error": null
+    },
+    "gu_focal_split": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "focal_point.split"
+      ],
+      "fired": [
+        "focal_point.split"
+      ],
+      "error": null
+    },
+    "gu_hue_clash_images": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "hue_harmony"
+      ],
+      "fired": [
+        "color_ratio",
+        "hue_harmony",
+        "image_style_conflict",
+        "image_style_conflict",
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gu_hue_clash_red_magenta": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "hue_harmony"
+      ],
+      "fired": [
+        "color_ratio",
+        "focal_point.ambiguous",
+        "hue_harmony"
+      ],
+      "error": null
+    },
+    "gu_image_style_conflict_cool": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": false,
+      "expect": [
+        "image_style_conflict"
+      ],
+      "fired": [
+        "image_style_conflict",
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gu_image_style_conflict_warm": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": false,
+      "expect": [
+        "image_style_conflict"
+      ],
+      "fired": [
+        "image_style_conflict",
+        "focal_point.missing"
+      ],
+      "error": null
+    },
+    "gu_missing_with_violation": {
+      "kind": "ugly",
+      "passed": true,
+      "blocked": true,
+      "expect": [
+        "color_ratio"
+      ],
+      "fired": [
+        "color_ratio",
+        "focal_point.missing"
+      ],
+      "error": null
+    }
+  }
+}

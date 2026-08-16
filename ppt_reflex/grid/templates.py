@@ -24,6 +24,7 @@ class TemplateProfile:
     accent2_hex: str = ""         # secondary accent
     gray_hex: str = "7A8090"      # secondary text/lines
     dim_hex: str = "B0B5C0"       # faintest text
+    surface_hex: str = "F4F6F9"   # card/panel fill (style preset surface; recipe remap source)
 
     # ── Fonts ──
     title_font: str = "Microsoft YaHei"

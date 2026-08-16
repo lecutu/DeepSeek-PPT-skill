@@ -1,0 +1,29 @@
+{
+  "id": "gb_blank_kpi_minimal",
+  "kind": "beautiful",
+  "template": "minimal",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "blank canvas: one message + kpi recipe card (accent value color).",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Accent",
+      "archetype": "blank",
+      "elements": [
+        {
+          "type": "title",
+          "text": "One message"
+        },
+        {
+          "type": "box",
+          "text": "Supporting card",
+          "recipe": "kpi"
+        }
+      ]
+    }
+  ]
+}

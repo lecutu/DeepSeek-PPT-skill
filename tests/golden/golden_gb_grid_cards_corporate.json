@@ -1,0 +1,48 @@
+{
+  "id": "gb_grid_cards_corporate",
+  "kind": "beautiful",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "grid_cards 2x2: four recipe cards auto-distributed across card slots.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Features",
+      "archetype": "grid_cards",
+      "params": {
+        "columns": 2,
+        "density": "airy"
+      },
+      "elements": [
+        {
+          "type": "title",
+          "text": "Features"
+        },
+        {
+          "type": "box",
+          "text": "One",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Two",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Three",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Four",
+          "recipe": "card"
+        }
+      ]
+    }
+  ]
+}

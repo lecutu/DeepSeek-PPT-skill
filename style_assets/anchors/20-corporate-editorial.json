@@ -1,0 +1,67 @@
+{
+  "anchor": {
+    "hue": 258,
+    "chroma": 0.055,
+    "lightness": 0.32,
+    "density": "comfortable",
+    "radius": "none",
+    "weight": "bold",
+    "scale_ratio": 1.333
+  },
+  "tokens": {
+    "color": {
+      "primary": "oklch(0.32 0.055 258)",
+      "secondary": "oklch(0.95 0.004 250)",
+      "accent": "oklch(0.55 0.2 25)",
+      "bg": "oklch(0.99 0.002 250)",
+      "text": "oklch(0.2 0.012 250)"
+    },
+    "type": {
+      "display": 28.43,
+      "title": 21.33,
+      "body": 16,
+      "caption": 12
+    },
+    "space": {
+      "sm": 16,
+      "md": 24,
+      "lg": 48
+    }
+  },
+  "meta": {
+    "anchor_word": "report-redline",
+    "temperament": [
+      "编辑感",
+      "数据",
+      "规则线"
+    ],
+    "domains": [
+      "商务",
+      "咨询",
+      "数据报告"
+    ],
+    "skin_compat": {
+      "radius": [
+        "none"
+      ],
+      "density": [
+        "comfortable",
+        "spacious"
+      ],
+      "weight": [
+        "bold"
+      ]
+    }
+  },
+  "gaps": [
+    "判定口径·radius：规范未定义 px↔档位阈值，按 0→none / 1–8→sm / 9–20→md / ≥21→full 判定（999px 胶囊视为 full）",
+    "判定口径·density：规范未定义加权公式，按 卡片 padding 均值 与 card-grid gap 的简单平均 判定",
+    "判定口径·scale_ratio：display/title 与 title/body 的几何均值，四舍五入到 {1.125,1.25,1.333,1.414} 最近档",
+    "60-30-10 面积比为设计意图估计值，未做像素级统计验证（蒸馏规则仅按区域用途判定主辅点缀）"
+  ],
+  "risks": [
+    "大标题对比依赖 display 28.43px，PPT 需要更大字号但受 1.333 比值约束",
+    "红色点缀面积需控制在 10% 以内，否则喧宾夺主",
+    "规则线依赖 1px/4px 边框，投影下可能发虚"
+  ]
+}

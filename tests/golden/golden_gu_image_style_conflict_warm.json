@@ -1,0 +1,38 @@
+{
+  "id": "gu_image_style_conflict_warm",
+  "kind": "ugly",
+  "template": "product",
+  "style": "tech_dark",
+  "strict_tokens": true,
+  "note": "暖色大图进 tech_dark: warm-orange image (dominant hue 65°) in a cyan-accent (212°) dark style — 147° from the accent, far outside the 30° analogous limit. Advisory signal (never blocks harmony_ok) — matched at signal level.",
+  "expected": {
+    "blocks": [
+      "image_style_conflict"
+    ]
+  },
+  "assets": {
+    "warm": {
+      "rgb": [
+        255,
+        140,
+        66
+      ],
+      "size": [
+        240,
+        160
+      ]
+    }
+  },
+  "slides": [
+    {
+      "title": "Hero",
+      "archetype": "image_hero",
+      "elements": [
+        {
+          "type": "image",
+          "path": "assets/warm.png"
+        }
+      ]
+    }
+  ]
+}

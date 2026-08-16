@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>神经形态计算原型发布</title>
+<style>
+:root {
+  --color-primary: oklch(0.34 0.13 295);
+  --color-secondary: oklch(0.24 0.09 295);
+  --color-accent: oklch(0.88 0.21 130);
+  --color-bg: oklch(0.12 0.035 295);
+  --color-text: oklch(0.9 0.015 295);
+  --text-display: 31.99px;
+  --text-title: 22.62px;
+  --text-body: 16px;
+  --text-caption: 11.32px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; line-height: 1.6; }
+a { color: inherit; }
+nav { display: flex; align-items: center; justify-content: space-between; padding: 8px 24px; border-bottom: 1px solid var(--color-text); }
+.nav-brand { font-size: var(--text-body); font-weight: 600; color: var(--color-text); }
+.nav-links { display: flex; gap: 24px; margin: 0; padding: 0; list-style: none; }
+.nav-links a { font-size: var(--text-caption); text-decoration: none; letter-spacing: 0.04em; }
+.nav-links a:hover { color: var(--color-accent); }
+.hero { background: var(--color-primary); color: var(--color-bg); padding: 40px 32px; }
+.hero-eyebrow { font-size: var(--text-caption); color: var(--color-accent); margin: 0 0 8px 0; letter-spacing: 0.18em; font-weight: 600; }
+.hero h1 { font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: var(--text-display); font-weight: 700; line-height: 1.15; margin: 0 0 8px 0; }
+.hero p { font-size: var(--text-body); margin: 0 0 16px 0; max-width: 60ch; opacity: 0.92; }
+.btn { display: inline-block; background: var(--color-accent); color: var(--color-bg); font-size: var(--text-body); font-weight: 600; text-decoration: none; padding: 8px 16px; border-radius: 0px; margin: 16px 0 0 0; }
+.hero-note { font-size: var(--text-caption); margin: 16px 0 0 0; opacity: 0.78; }
+.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 40px 32px; }
+.card { background: var(--color-secondary); border: 1px solid var(--color-text); border-radius: 0px; padding: 16px; }
+.card-tag { font-size: var(--text-caption); color: var(--color-accent); margin: 0 0 8px 0; font-weight: 600; letter-spacing: 0.1em; }
+.card h3 { font-size: var(--text-title); font-weight: 700; margin: 0 0 8px 0; line-height: 1.3; }
+.card p { font-size: var(--text-body); margin: 0 0 8px 0; opacity: 0.88; line-height: 1.6; }
+.card-note { font-size: var(--text-caption); margin: 0; opacity: 0.65; }
+footer { background: var(--color-primary); color: var(--color-bg); padding: 16px 32px; border-top: 1px solid var(--color-text); }
+.footer-note { font-size: var(--text-caption); margin: 0; opacity: 0.75; }
+.hero h1 { margin-left: -8px; } .card-grid { align-items: start; } .card:nth-child(2) { margin-top: 16px; } .card:nth-child(3) { margin-top: 32px; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-brand">脉冲实验室</span>
+  <ul class="nav-links">
+    <li><a href="#">原型</a></li>
+    <li><a href="#">芯片</a></li>
+    <li><a href="#">应用</a></li>
+    <li><a href="#">路线图</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <p class="hero-eyebrow">原型发布会 · 现场速记</p>
+  <h1>神经形态计算原型发布</h1>
+  <p>基于 22 nm 工艺的 128 万神经元脉冲芯片点亮：事件驱动、异步脉冲、亚毫瓦级功耗——从学术原型走向工程验证。</p>
+  <a class="btn" href="#">索取资料</a>
+  <p class="hero-note">现场演示 · 功耗 0.8 mW @ 峰值吞吐</p>
+</header>
+<section class="card-grid">
+  <article class="card">
+    <p class="card-tag">核 01</p>
+    <h3>脉冲神经元阵列</h3>
+    <p>128 万 LIF 神经元、7 亿突触，事件驱动架构下典型推理功耗 0.8 mW，为传统架构的 1/300。</p>
+    <p class="card-note">指标：峰值吞吐 4.2 亿事件/秒。</p>
+  </article>
+  <article class="card">
+    <p class="card-tag">核 02</p>
+    <h3>芯片原型参数</h3>
+    <p>22 nm FD-SOI 工艺，die 面积 68 mm²，片上学习电路支持 STDP 在线更新，温度范围 -40–85 ℃。</p>
+    <p class="card-note">指标：首批晶圆良率 92%。</p>
+  </article>
+  <article class="card">
+    <p class="card-tag">核 03</p>
+    <h3>应用验证场景</h3>
+    <p>超低功耗唤醒、事件相机实时识别、脑机接口信号预处理三个场景完成端到端验证，SDK 即日开放。</p>
+    <p class="card-note">指标：唤醒功耗 12 µW。</p>
+  </article>
+</section>
+<footer>
+  <p class="footer-note">脉冲实验室 · 2026-08 | 路线图见官网公告</p>
+</footer>
+</body>
+</html>

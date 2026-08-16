@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM 推理成本工程实践</title>
+<style>
+:root {
+  --color-primary: oklch(0.22 0.015 250);
+  --color-secondary: oklch(0.94 0.004 250);
+  --color-accent: oklch(0.58 0.18 250);
+  --color-bg: oklch(0.99 0.002 250);
+  --color-text: oklch(0.18 0.01 250);
+  --text-display: 28.43px;
+  --text-title: 21.33px;
+  --text-body: 16px;
+  --text-caption: 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; line-height: 1.6; }
+a { color: inherit; }
+nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; border-bottom: 1px solid var(--color-text); }
+.nav-brand { font-size: var(--text-body); font-weight: 600; color: var(--color-primary); }
+.nav-links { display: flex; gap: 32px; margin: 0; padding: 0; list-style: none; }
+.nav-links a { font-size: var(--text-caption); text-decoration: none; letter-spacing: 0.04em; }
+.nav-links a:hover { color: var(--color-accent); }
+.hero { background: var(--color-primary); color: var(--color-bg); padding: 64px 48px; }
+.hero-eyebrow { font-size: var(--text-caption); color: var(--color-accent); margin: 0 0 16px 0; letter-spacing: 0.18em; font-weight: 600; }
+.hero h1 { font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: var(--text-display); font-weight: 700; line-height: 1.15; margin: 0 0 16px 0; }
+.hero p { font-size: var(--text-body); margin: 0 0 24px 0; max-width: 60ch; opacity: 0.92; }
+.btn { display: inline-block; background: var(--color-accent); color: var(--color-bg); font-size: var(--text-body); font-weight: 600; text-decoration: none; padding: 16px 24px; border-radius: 0px; margin: 24px 0 0 0; }
+.hero-note { font-size: var(--text-caption); margin: 24px 0 0 0; opacity: 0.78; }
+.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 64px 48px; }
+.card { background: var(--color-secondary); border: 1px solid var(--color-text); border-radius: 0px; padding: 24px; }
+.card-tag { font-size: var(--text-caption); color: var(--color-accent); margin: 0 0 8px 0; font-weight: 600; letter-spacing: 0.1em; }
+.card h3 { font-size: var(--text-title); font-weight: 700; margin: 0 0 8px 0; line-height: 1.3; }
+.card p { font-size: var(--text-body); margin: 0 0 16px 0; opacity: 0.88; line-height: 1.6; }
+.card-note { font-size: var(--text-caption); margin: 0; opacity: 0.65; }
+footer { background: var(--color-secondary); color: var(--color-text); padding: 24px 48px; border-top: 1px solid var(--color-text); }
+.footer-note { font-size: var(--text-caption); margin: 0; opacity: 0.75; }
+.hero-eyebrow, .hero-note, .card-tag, .card-note { font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Courier New", monospace; }
+.card { border-left: 4px solid var(--color-text); }
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-brand">推理工程组</span>
+  <ul class="nav-links">
+    <li><a href="#">总览</a></li>
+    <li><a href="#">KV 缓存</a></li>
+    <li><a href="#">解码</a></li>
+    <li><a href="#">调度</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <p class="hero-eyebrow">工程笔记 · 第 4 期</p>
+  <h1>LLM 推理成本工程实践</h1>
+  <p>从 KV Cache 量化到投机解码与连续批处理，一套可复制的成本优化工具箱，附基准数据与代价清单。</p>
+  <a class="btn" href="#">查看基准</a>
+  <p class="hero-note">基准：A100 80G × 8，vLLM 0.8，吞吐数据见 §3。</p>
+</header>
+<section class="card-grid">
+  <article class="card">
+    <p class="card-tag">§1 · KV 缓存</p>
+    <h3>KV Cache 量化</h3>
+    <p>权重 4-bit + KV 8-bit 混合量化，显存占用下降 41%，精度损失低于 0.3 个点。</p>
+    <p class="card-note">注：以 MMLU 为准。</p>
+  </article>
+  <article class="card">
+    <p class="card-tag">§2 · 解码</p>
+    <h3>投机解码</h3>
+    <p>小模型草稿 + 大模型验证，接受率 0.72 时吞吐提升 2.1×；草稿模型与目标模型同分词器。</p>
+    <p class="card-note">注：接受率随输入长度波动。</p>
+  </article>
+  <article class="card">
+    <p class="card-tag">§3 · 调度</p>
+    <h3>连续批处理</h3>
+    <p>请求级连续批处理消除队头阻塞，GPU 利用率从 38% 提升至 71%，配优先级抢占。</p>
+    <p class="card-note">注：长尾延迟需单独治理。</p>
+  </article>
+</section>
+<footer>
+  <p class="footer-note">推理工程组 · 2026-08 | 数据可复现，脚本见内网仓库</p>
+</footer>
+</body>
+</html>

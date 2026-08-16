@@ -2,8 +2,8 @@
 // ppt-reflex python runner and the Client preview panel. Decorators are
 // expanded by hand (the runtime does not enable decorator syntax); this
 // mirrors exactly what the typert generator emits.
-import { readFileSync, writeFileSync } from 'node:fs'
-import { isAbsolute, resolve } from 'node:path'
+import { readFileSync, writeFileSync, renameSync, unlinkSync, realpathSync, existsSync, statSync } from 'node:fs'
+import { isAbsolute, resolve, dirname, basename, sep } from 'node:path'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 function __runInitializers(thisArg, initializers, value) {
@@ -57,18 +57,86 @@ const DEFAULTS = {
   paletteFile: 'D:\\ppt\\_palette_auto.json',
 }
 
+const BUILD_TIMEOUT_MS = 120000
+const CONFIG_FILE_KEYS = ['framesFile', 'deckFile', 'feedbackFile', 'selectionFile', 'paletteFile']
+
 function readJson(path, fallback = null) {
   try { return JSON.parse(readFileSync(path, 'utf-8')) } catch { return fallback }
 }
 
 function writeJson(path, value) {
-  try { writeFileSync(path, JSON.stringify(value), 'utf-8') } catch { /* ignore */ }
+  const tmp = path + '.tmp-' + Math.random().toString(36).slice(2)
+  try {
+    writeFileSync(tmp, JSON.stringify(value), 'utf-8')
+    renameSync(tmp, path)
+  } catch (e) {
+    try { unlinkSync(tmp) } catch { /* tmp never created */ }
+    console.warn('[dsh-slide-reflex] writeJson failed:', path, e && e.message ? e.message : e)
+  }
 }
 
 function hexToRgb(hex) {
   const h = String(hex || '').replace('#', '')
   if (!/^[0-9a-fA-F]{6}$/.test(h)) return null
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
+}
+
+function normPath(s) {
+  return process.platform === 'win32' ? String(s).toLowerCase() : String(s)
+}
+
+function isPathWithin(child, parent) {
+  const c = normPath(child)
+  const p = normPath(parent)
+  return c === p || c.startsWith(p + sep)
+}
+
+// realpath of a path that may not exist yet: resolve the nearest existing
+// ancestor instead (mirrors Python os.path.realpath used by the runner).
+function realpathFlexible(p) {
+  try { return realpathSync(p) } catch { /* keep walking */ }
+  let cur = p
+  const tail = []
+  for (;;) {
+    const parent = dirname(cur)
+    if (parent === cur) return resolve(p)
+    try {
+      return resolve(realpathSync(parent), ...tail.reverse())
+    } catch { /* walk further up */ }
+    tail.push(basename(cur))
+    cur = parent
+  }
+}
+
+// Validate the merged loader config; any invalid field falls back to DEFAULTS
+// so a hostile or broken plugin config can never point the runner elsewhere.
+function isExistingFile(p) {
+  try { return existsSync(p) && statSync(p).isFile() } catch { return false }
+}
+
+function isExistingDir(p) {
+  try { return existsSync(p) && statSync(p).isDirectory() } catch { return false }
+}
+
+function sanitizeConfig(raw) {
+  const out = { ...DEFAULTS, ...(raw || {}) }
+  if (typeof out.python !== 'string' || !isAbsolute(out.python) || !isExistingFile(out.python)) {
+    console.warn('[dsh-slide-reflex] config.python invalid, falling back to default:', out.python)
+    out.python = DEFAULTS.python
+  }
+  if (typeof out.cwd !== 'string' || !isAbsolute(out.cwd) || !isExistingDir(out.cwd)) {
+    console.warn('[dsh-slide-reflex] config.cwd invalid, falling back to default:', out.cwd)
+    out.cwd = DEFAULTS.cwd
+  }
+  const cwdReal = realpathFlexible(out.cwd)
+  for (const key of CONFIG_FILE_KEYS) {
+    const v = out[key]
+    if (typeof v !== 'string' || !isAbsolute(v) || !isPathWithin(realpathFlexible(v), cwdReal)) {
+      console.warn('[dsh-slide-reflex] config.' + key + ' invalid (must be an absolute path inside cwd), falling back to default:', v)
+      out[key] = DEFAULTS[key]
+    }
+  }
+  return out
 }
 
 let SlideReflexGateway = (() => {
@@ -92,17 +160,20 @@ let SlideReflexGateway = (() => {
     constructor(ctx) {
       super(ctx, 'slideReflex')
       __runInitializers(this, _instanceExtraInitializers)
-      this.config = DEFAULTS
+      let merged = DEFAULTS
       try {
         for (const entry of ctx.get('loader')?.entries() ?? []) {
           if (entry.id === 'dsh-slide-reflex' && entry.options?.config) {
-            this.config = { ...DEFAULTS, ...entry.options.config }
+            merged = { ...DEFAULTS, ...entry.options.config }
           }
         }
       } catch { /* keep defaults */ }
+      this.config = sanitizeConfig(merged)
       this.frames = []
       this.building = false
       this.lastResult = null
+      this.epoch = 0
+      this.framesMaxSeen = -1
     }
 
     parseLine(line) {
@@ -116,14 +187,17 @@ let SlideReflexGateway = (() => {
     }
 
     async build(request) {
+      if (this.building) return { ok: false, hostError: 'busy', result: null }
       const subprocess = this.ctx.get('subprocess')
-      if (subprocess === undefined) return { ok: false, hostError: 'subprocess service unavailable' }
+      if (subprocess === undefined) return { ok: false, hostError: 'subprocess service unavailable', result: null }
       this.frames = []
       this.lastResult = null
       this.building = true
+      this.epoch += 1
       const req = Object.assign({}, request || {})
       req.stream = true
       delete req.live
+      req.frames_out = this.config.framesFile
       const sv = req.survey || {}
       delete req.survey
       const palette = readJson(this.config.paletteFile)
@@ -136,6 +210,11 @@ let SlideReflexGateway = (() => {
       if (Object.keys(ov).length) req.overrides = Object.assign({}, req.overrides || {}, ov)
       let lineBuf = ''
       let stderrTail = ''
+      let stdoutLossy = false
+      let spillPath = null
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), BUILD_TIMEOUT_MS)
+      if (typeof timer.unref === 'function') timer.unref()
       try {
         const proc = subprocess.spawn({
           argv: [this.config.python, '_dsh_ppt_runner.py'],
@@ -146,12 +225,15 @@ let SlideReflexGateway = (() => {
             stderr: { maxBytes: 64 * 1024 },
           },
           graceMs: 3000,
+          signal: ac.signal,
         })
         let off = 0
         for (;;) {
           if (proc.collected.stdout) {
             const r = proc.collected.stdout.readFrom(off)
             off = r.nextOffset
+            if (r.lossy) stdoutLossy = true
+            if (r.spillPath) spillPath = r.spillPath
             if (r.text) {
               const lines = (lineBuf + r.text).split('\n')
               lineBuf = lines.pop() || ''
@@ -165,6 +247,8 @@ let SlideReflexGateway = (() => {
           if (exited) {
             if (proc.collected.stdout) {
               const fin = proc.collected.stdout.readFrom(off)
+              if (fin.lossy) stdoutLossy = true
+              if (fin.spillPath) spillPath = fin.spillPath
               if (fin.text) this.parseLine(lineBuf + fin.text)
             }
             if (proc.collected.stderr) {
@@ -172,26 +256,44 @@ let SlideReflexGateway = (() => {
               stderrTail = (se.text || '').slice(-600)
             }
             const outcome = await proc.done
+            if (stdoutLossy && spillPath) {
+              // The in-memory tail dropped the head of the stream — the spill
+              // file still holds the complete stream (sealed at settlement), so
+              // re-parse it to keep every frame and the final result line.
+              this.frames = []
+              this.lastResult = null
+              try {
+                const full = readFileSync(spillPath, 'utf-8')
+                for (const l of full.split('\n')) this.parseLine(l)
+                stdoutLossy = false
+              } catch { /* keep the lossy partial results */ }
+            }
             if (this.lastResult) this.lastResult.survey = sv
-            return { ok: true, exitCode: outcome.exitCode, result: this.lastResult, nFrames: this.frames.length, stderrTail }
+            return { ok: true, hostError: null, exitCode: outcome.exitCode, result: this.lastResult, nFrames: this.frames.length, stderrTail, stdoutLossy: stdoutLossy || undefined }
+          }
+          if (ac.signal.aborted) {
+            proc.terminate()
+            try { await proc.done } catch { /* tree already gone */ }
+            return { ok: false, hostError: 'build timeout', result: null, nFrames: this.frames.length, stderrTail }
           }
         }
       } catch (e) {
-        return { ok: false, hostError: String(e && e.message ? e.message : e), nFrames: this.frames.length, stderrTail }
+        if (ac.signal.aborted) return { ok: false, hostError: 'build timeout', result: null, nFrames: this.frames.length, stderrTail }
+        return { ok: false, hostError: String(e && e.message ? e.message : e), result: null, nFrames: this.frames.length, stderrTail }
       } finally {
+        clearTimeout(timer)
         this.building = false
       }
     }
 
       async renderSlides(request) {
         const deck = (request && request.deck) || readJson(this.config.deckFile)
-        if (!deck) return { ok: false, error: 'no deck available — generate one in chat first' }
-        const base = resolve(this.config.cwd || 'D:/ppt')
+        if (!deck) return { ok: false, hostError: 'no deck available — generate one in chat first', result: null, rendered_slides: [] }
+        const base = realpathFlexible(this.config.cwd || 'D:/ppt')
         const rawDir = request && request.render_dir ? String(request.render_dir) : ''
         const wanted = rawDir ? (isAbsolute(rawDir) ? resolve(rawDir) : resolve(base, rawDir)) : resolve(base, '_render_vision')
-        const renderDir = wanted === base || wanted.startsWith(base + (process.platform === 'win32' ? '\\' : '/'))
-          ? wanted
-          : resolve(base, '_render_vision')
+        const wantedReal = realpathFlexible(wanted)
+        const renderDir = isPathWithin(wantedReal, base) ? wanted : resolve(base, '_render_vision')
         const res = await this.build(Object.assign({}, deck, { render_png: true, render_dir: renderDir }))
         return {
           ok: !!(res && res.ok),
@@ -215,13 +317,27 @@ let SlideReflexGateway = (() => {
           } catch { /* partial */ }
         }
       } catch { /* no file yet */ }
-      return { frames: all.slice(request && request.since ? request.since : 0), building: result === null && all.length > 0, result }
+      const since = (request && request.since) ? request.since : 0
+      const fileMax = all.length - 1
+      let epoch = this.epoch
+      let from = since
+      if (fileMax < this.framesMaxSeen) {
+        // The frames file was truncated since the last read — a fresh build is
+        // writing it, so treat it as a new build (epoch bump) and rewind to 0.
+        epoch = ++this.epoch
+        this.framesMaxSeen = -1
+        from = 0
+      }
+      this.framesMaxSeen = Math.max(this.framesMaxSeen, fileMax)
+      if (from > fileMax + 1) from = fileMax + 1
+      return { ok: true, hostError: null, frames: all.slice(from), building: result === null && all.length > 0, result, epoch }
     }
 
     async applyFeedbackBuild(request) {
       const requests = (request && request.requests) || []
+      if (!Array.isArray(requests)) return { ok: false, hostError: 'requests must be an array', result: null }
       const deck = readJson(this.config.deckFile)
-      if (!deck) return { error: 'no auto deck — let the agent generate one in chat first' }
+      if (!deck) return { ok: false, hostError: 'no auto deck — let the agent generate one in chat first', result: null }
       for (const rq of requests) {
         if (rq.type !== 'color') continue
         const rgb = hexToRgb(rq.color_hex)
@@ -239,29 +355,29 @@ let SlideReflexGateway = (() => {
 
     async savePalette(request) {
       writeJson(this.config.paletteFile, (request && request.palette) || { accent_hex: '', bg_hex: '', swatches: [] })
-      return { ok: true }
+      return { ok: true, hostError: null, result: null }
     }
 
     async loadPalette() {
-      return { palette: readJson(this.config.paletteFile, { accent_hex: '', bg_hex: '', swatches: [] }) }
+      return { ok: true, hostError: null, result: null, palette: readJson(this.config.paletteFile, { accent_hex: '', bg_hex: '', swatches: [] }) }
     }
 
     async saveFeedback(request) {
       writeJson(this.config.feedbackFile, { requests: (request && request.requests) || [] })
-      return { ok: true }
+      return { ok: true, hostError: null, result: null }
     }
 
     async saveSelection(request) {
       writeJson(this.config.selectionFile, request || {})
-      return { ok: true }
+      return { ok: true, hostError: null, result: null }
     }
 
     async loadDeck() {
       const deck = readJson(this.config.deckFile)
-      if (deck) { delete deck.live; return { deck, source: 'auto' } }
+      if (deck) { delete deck.live; return { ok: true, hostError: null, result: null, deck, source: 'auto' } }
       const sample = readJson(this.config.cwd.replace(/\\/g, '/') + '/_deck_whitecollar_v2.json')
-      if (sample) { delete sample.live; return { deck: sample, source: 'sample' } }
-      return { error: 'no deck available' }
+      if (sample) { delete sample.live; return { ok: true, hostError: null, result: null, deck: sample, source: 'sample' } }
+      return { ok: false, hostError: 'no deck available', result: null }
     }
   }
 })()

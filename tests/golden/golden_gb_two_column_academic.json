@@ -1,0 +1,34 @@
+{
+  "id": "gb_two_column_academic",
+  "kind": "beautiful",
+  "template": "academic",
+  "style": "academic_rigorous",
+  "strict_tokens": true,
+  "note": "two_column: equal columns with recipe cards.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Compare",
+      "archetype": "two_column",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Compare"
+        },
+        {
+          "type": "box",
+          "text": "Left",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Right",
+          "recipe": "card"
+        }
+      ]
+    }
+  ]
+}

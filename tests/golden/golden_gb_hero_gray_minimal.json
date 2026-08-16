@@ -1,0 +1,37 @@
+{
+  "id": "gb_hero_gray_minimal",
+  "kind": "beautiful",
+  "template": "minimal",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "image_hero with a NEUTRAL (grayscale) image — no chromatic conflict with the accent.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "assets": {
+    "gray": {
+      "rgb": [
+        150,
+        150,
+        150
+      ],
+      "size": [
+        240,
+        160
+      ]
+    }
+  },
+  "slides": [
+    {
+      "title": "Hero",
+      "archetype": "image_hero",
+      "elements": [
+        {
+          "type": "image",
+          "path": "assets/gray.png"
+        }
+      ]
+    }
+  ]
+}

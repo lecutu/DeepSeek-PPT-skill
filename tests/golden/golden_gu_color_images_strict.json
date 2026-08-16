@@ -1,0 +1,55 @@
+{
+  "id": "gu_color_images_strict",
+  "kind": "ugly",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "color_ratio fully declarative (strict mode): red + warm-orange synthetic images 1:1 area → 50/50 split trips the secondary band. Hue distance 30° keeps hue_harmony silent.",
+  "expected": {
+    "blocks": [
+      "color_ratio"
+    ]
+  },
+  "assets": {
+    "red": {
+      "rgb": [
+        255,
+        0,
+        0
+      ],
+      "size": [
+        240,
+        160
+      ]
+    },
+    "warm": {
+      "rgb": [
+        255,
+        140,
+        66
+      ],
+      "size": [
+        240,
+        160
+      ]
+    }
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "two_column",
+      "elements": [
+        {
+          "type": "image",
+          "path": "assets/red.png",
+          "region": "left"
+        },
+        {
+          "type": "image",
+          "path": "assets/warm.png",
+          "region": "right"
+        }
+      ]
+    }
+  ]
+}

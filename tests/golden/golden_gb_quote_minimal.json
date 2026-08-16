@@ -1,0 +1,24 @@
+{
+  "id": "gb_quote_minimal",
+  "kind": "beautiful",
+  "template": "minimal",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "quote: single memorable line.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Q",
+      "archetype": "quote",
+      "elements": [
+        {
+          "type": "title",
+          "text": "A memorable line"
+        }
+      ]
+    }
+  ]
+}

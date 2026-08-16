@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>员工健康与关怀计划</title>
+<style>
+:root {
+  --color-primary: oklch(0.45 0.055 55);
+  --color-secondary: oklch(0.955 0.015 85);
+  --color-accent: oklch(0.68 0.15 55);
+  --color-bg: oklch(0.99 0.004 85);
+  --color-text: oklch(0.3 0.025 55);
+  --text-display: 25px;
+  --text-title: 20px;
+  --text-body: 16px;
+  --text-caption: 12.8px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; line-height: 1.6; }
+a { color: inherit; }
+nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; border-bottom: 1px solid var(--color-text); }
+.nav-brand { font-size: var(--text-body); font-weight: 600; color: var(--color-primary); }
+.nav-links { display: flex; gap: 32px; margin: 0; padding: 0; list-style: none; }
+.nav-links a { font-size: var(--text-caption); text-decoration: none; letter-spacing: 0.04em; }
+.nav-links a:hover { color: var(--color-accent); }
+.hero { background: var(--color-primary); color: var(--color-bg); padding: 64px 48px; }
+.hero-eyebrow { font-size: var(--text-caption); color: var(--color-accent); margin: 0 0 16px 0; letter-spacing: 0.18em; font-weight: 600; }
+.hero h1 { font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: var(--text-display); font-weight: 500; line-height: 1.15; margin: 0 0 16px 0; }
+.hero p { font-size: var(--text-body); margin: 0 0 24px 0; max-width: 60ch; opacity: 0.92; }
+.btn { display: inline-block; background: var(--color-accent); color: var(--color-text); font-size: var(--text-body); font-weight: 600; text-decoration: none; padding: 16px 24px; border-radius: 16px; margin: 24px 0 0 0; }
+.hero-note { font-size: var(--text-caption); margin: 24px 0 0 0; opacity: 0.78; }
+.card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 64px 48px; }
+.card { background: var(--color-secondary); border: 1px solid var(--color-text); border-radius: 16px; padding: 24px; }
+.card-tag { font-size: var(--text-caption); color: var(--color-accent); margin: 0 0 8px 0; font-weight: 600; letter-spacing: 0.1em; }
+.card h3 { font-size: var(--text-title); font-weight: 500; margin: 0 0 8px 0; line-height: 1.3; }
+.card p { font-size: var(--text-body); margin: 0 0 16px 0; opacity: 0.88; line-height: 1.6; }
+.card-note { font-size: var(--text-caption); margin: 0; opacity: 0.65; }
+footer { background: var(--color-secondary); color: var(--color-text); padding: 24px 48px; border-top: 1px solid var(--color-text); }
+.footer-note { font-size: var(--text-caption); margin: 0; opacity: 0.75; }
+
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-brand">安睦人力</span>
+  <ul class="nav-links">
+    <li><a href="#">计划</a></li>
+    <li><a href="#">福利</a></li>
+    <li><a href="#">活动</a></li>
+    <li><a href="#">联系</a></li>
+  </ul>
+</nav>
+<header class="hero">
+  <p class="hero-eyebrow">2026 年度关怀计划</p>
+  <h1>把健康关怀，送到你身边</h1>
+  <p>心理咨询、年度体检、健康活动——三项福利全面升级，覆盖本人及直系家属，全年可随时预约。</p>
+  <a class="btn" href="#">立即预约</a>
+  <p class="hero-note">小提示：所有服务均严格保密，预约信息仅本人可见。</p>
+</header>
+<section class="card-grid">
+  <article class="card">
+    <p class="card-tag">心理支持</p>
+    <h3>一对一心理咨询</h3>
+    <p>全年 8 次免费咨询，严格保密；支持线上视频与线下面对面两种方式，预约时间可自选。</p>
+    <p class="card-note">小提示：紧急情况可拨打 24 小时热线。</p>
+  </article>
+  <article class="card">
+    <p class="card-tag">体检福利</p>
+    <h3>年度体检升级</h3>
+    <p>基础套餐免费升级，新增心脑血管与肿瘤标志物筛查项目；家属可享团购价。</p>
+    <p class="card-note">小提示：体检需提前一周预约。</p>
+  </article>
+  <article class="card">
+    <p class="card-tag">健康活动</p>
+    <h3>每月健康主题日</h3>
+    <p>从肩颈理疗到正念工作坊，每月一个主题，工位即可参与；累计参与可兑换带薪休假日。</p>
+    <p class="card-note">小提示：名额有限，先到先得。</p>
+  </article>
+</section>
+<footer>
+  <p class="footer-note">安睦人力 · 员工关怀部 | 咨询电话 400-800-2026</p>
+</footer>
+</body>
+</html>

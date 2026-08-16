@@ -1,0 +1,67 @@
+{
+  "anchor": {
+    "hue": 255,
+    "chroma": 0.02,
+    "lightness": 0.21,
+    "density": "spacious",
+    "radius": "none",
+    "weight": "bold",
+    "scale_ratio": 1.333
+  },
+  "tokens": {
+    "color": {
+      "primary": "oklch(0.21 0.02 255)",
+      "secondary": "oklch(0.96 0.006 90)",
+      "accent": "oklch(0.55 0.19 30)",
+      "bg": "oklch(0.985 0.005 90)",
+      "text": "oklch(0.2 0.02 255)"
+    },
+    "type": {
+      "display": 28.43,
+      "title": 21.33,
+      "body": 16,
+      "caption": 12
+    },
+    "space": {
+      "sm": 16,
+      "md": 24,
+      "lg": 32
+    }
+  },
+  "meta": {
+    "anchor_word": "editorial-paper",
+    "temperament": [
+      "编辑感",
+      "注释",
+      "大字号对比"
+    ],
+    "domains": [
+      "学术",
+      "出版",
+      "编辑"
+    ],
+    "skin_compat": {
+      "radius": [
+        "none"
+      ],
+      "density": [
+        "spacious",
+        "comfortable"
+      ],
+      "weight": [
+        "bold"
+      ]
+    }
+  },
+  "gaps": [
+    "判定口径·radius：规范未定义 px↔档位阈值，按 0→none / 1–8→sm / 9–20→md / ≥21→full 判定（999px 胶囊视为 full）",
+    "判定口径·density：规范未定义加权公式，按 卡片 padding 均值 与 card-grid gap 的简单平均 判定",
+    "判定口径·scale_ratio：display/title 与 title/body 的几何均值，四舍五入到 {1.125,1.25,1.333,1.414} 最近档",
+    "60-30-10 面积比为设计意图估计值，未做像素级统计验证（蒸馏规则仅按区域用途判定主辅点缀）"
+  ],
+  "risks": [
+    "脚注式信息密度高，PPT 单页承载易超载",
+    "衬线 display 字体迁移风险",
+    "4px 强调规则线在低分辨率投影下可能不可见"
+  ]
+}

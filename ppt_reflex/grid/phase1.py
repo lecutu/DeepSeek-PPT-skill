@@ -78,6 +78,7 @@ def _place_stack(elems, ux, uy, uw, uh, page_w, page_h,
     # expands the shape past neighbors and canvas. We front-load the estimate
     # so Phase 1 KNOWS what the render layer will need.
     demands: list[float] = []
+    margins: list[float] = []  # 元素间 margin 单独记账，避免与需求高度双重计数
     has_image = False
     image_fill: list[bool] = []  # 标记"填满剩余空间"的图片（9999 哨兵）——其 stack_clipped 是假警告
     for elem in elems:
@@ -85,13 +86,15 @@ def _place_stack(elems, ux, uy, uw, uh, page_w, page_h,
         eh = _estimate_height(elem, ew)
         if eh < 0:
             eh = 24
+        margins.append(getattr(elem, "margin_above", 0.0) or 0.0)
         is_fill = elem.content_type == ContentType.IMAGE and eh > uh
         image_fill.append(is_fill)
         if is_fill:
             has_image = True  # IMAGE sentinel: fill remaining space, not demand-driven
         demands.append(eh)
 
-    total_demand = sum(demands)
+    # 需求 + 间距一起算预算，否则缩放不足、末尾元素被区域底裁掉
+    total_demand = sum(demands) + sum(margins)
     # If total demand exceeds available height, scale proportionally (but never below 50%)
     if total_demand > uh and total_demand > 0 and not has_image:
         scale = min(uh / total_demand, 1.0)

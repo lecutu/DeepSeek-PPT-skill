@@ -1,0 +1,41 @@
+{
+  "id": "gu_color_complementary_1to1",
+  "kind": "ugly",
+  "template": "academic",
+  "style": null,
+  "strict_tokens": false,
+  "note": "互补色 1:1 面积: cyan vs orange fills in equal columns. OKLCH-complementary pair (~163° apart, so hue_harmony stays silent) but 50/50 share breaks the 60-30-10 secondary band. Raw fills = human-panel escape hatch.",
+  "expected": {
+    "blocks": [
+      "color_ratio"
+    ]
+  },
+  "slides": [
+    {
+      "title": "T",
+      "archetype": "two_column",
+      "elements": [
+        {
+          "type": "box",
+          "text": "A",
+          "fill_color": [
+            0,
+            229,
+            255
+          ],
+          "region": "left"
+        },
+        {
+          "type": "box",
+          "text": "B",
+          "fill_color": [
+            255,
+            109,
+            0
+          ],
+          "region": "right"
+        }
+      ]
+    }
+  ]
+}

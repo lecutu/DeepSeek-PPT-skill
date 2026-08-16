@@ -1,7 +1,7 @@
 {
   "name": "dsh-slide-reflex",
   "version": "0.1.0",
-  "description": "Vision-free PPT engine bridge + live per-page preview panel with click/box-select feedback loop (ppt-reflex v0.6.0)",
+  "description": "Vision-free PPT engine bridge + live per-page preview panel",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -15,20 +15,17 @@
     "lib/index.js",
     "lib/typert.js",
     "lib/remote.js",
-    "lib/client.js"
+    "lib/client.js",
+    "cordis.patch.yml"
   ],
   "license": "MIT",
   "keywords": [
     "deepseek-harness",
     "dsh",
     "ppt",
-    "powerpoint",
     "pptx",
     "presentation",
-    "slides",
-    "slide-deck",
-    "feedback-loop",
-    "preview"
+    "slides"
   ],
   "repository": {
     "type": "git",
@@ -37,35 +34,21 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-api-remotes": "*",
-      "@deepseek-ai/dsh-client-connection": "*",
-      "@deepseek-ai/dsh-client-locale": "*",
-      "@deepseek-ai/dsh-client-runtime": "*",
-      "@deepseek-ai/dsh-typert-protocol": "*",
-    "zod": "*",
-      "react": "^18.2.0"
-      
+    "@deepseek-ai/dsh-typert-protocol": "*",
+    "zod": "*"
   },
-  "devDependencies": {
-      "@deepseek-ai/cordis": "^4.0.1",
-      "@deepseek-ai/dsh-api-remotes": "*",
-      "@deepseek-ai/dsh-client-connection": "*",
-      "@deepseek-ai/dsh-client-locale": "*",
-      "@deepseek-ai/dsh-client-runtime": "*",
-      "@deepseek-ai/dsh-typert-protocol": "*",
-      "react": "^18.2.0"
-    },
-    "dsh": {
+  "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
     "marketplace": {
       "profiles": [
-        "web"
+        "web",
+        "desktop"
       ],
       "requiresRestart": true,
       "requiresBuildApproval": false,
-      "manualSteps": "Requires ppt-reflex engine repo with _dsh_ppt_runner.py; set config python/cwd in the bundle row."
+      "manualSteps": "Requires ppt-reflex engine repo with _dsh_ppt_runner.py"
     },
     "client": {
       "platform": "web",

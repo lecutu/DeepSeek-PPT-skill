@@ -1,0 +1,68 @@
+{
+  "anchor": {
+    "hue": 275,
+    "chroma": 0.115,
+    "lightness": 0.38,
+    "density": "compact",
+    "radius": "sm",
+    "weight": "bold",
+    "scale_ratio": 1.414
+  },
+  "tokens": {
+    "color": {
+      "primary": "oklch(0.38 0.115 275)",
+      "secondary": "oklch(0.92 0.02 275)",
+      "accent": "oklch(0.85 0.21 120)",
+      "bg": "oklch(0.975 0.01 275)",
+      "text": "oklch(0.2 0.03 275)"
+    },
+    "type": {
+      "display": 31.99,
+      "title": 22.62,
+      "body": 16,
+      "caption": 11.32
+    },
+    "space": {
+      "sm": 8,
+      "md": 16,
+      "lg": 32
+    }
+  },
+  "meta": {
+    "anchor_word": "indigo-pitch",
+    "temperament": [
+      "先锋",
+      "几何",
+      "路演"
+    ],
+    "domains": [
+      "商务",
+      "营销",
+      "发布会"
+    ],
+    "skin_compat": {
+      "radius": [
+        "sm",
+        "none"
+      ],
+      "density": [
+        "compact",
+        "comfortable"
+      ],
+      "weight": [
+        "bold"
+      ]
+    }
+  },
+  "gaps": [
+    "判定口径·radius：规范未定义 px↔档位阈值，按 0→none / 1–8→sm / 9–20→md / ≥21→full 判定（999px 胶囊视为 full）",
+    "判定口径·density：规范未定义加权公式，按 卡片 padding 均值 与 card-grid gap 的简单平均 判定",
+    "判定口径·scale_ratio：display/title 与 title/body 的几何均值，四舍五入到 {1.125,1.25,1.333,1.414} 最近档",
+    "60-30-10 面积比为设计意图估计值，未做像素级统计验证（蒸馏规则仅按区域用途判定主辅点缀）"
+  ],
+  "risks": [
+    "不均匀栅格（2fr 1fr 2fr）与错位卡片迁移到 PPT 需重排",
+    "chartreuse 高彩度点缀在浅底上对比度依赖环境光",
+    "16px 强调色带属于装饰性元素，PPT 模板可能不提供"
+  ]
+}

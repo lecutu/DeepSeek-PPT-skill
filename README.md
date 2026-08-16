@@ -49,6 +49,8 @@ The AI reads the diagnostics, edits its declaration, and re-runs. A `CircuitBrea
 ```
 
 **It is not "AI generates, human fixes." It is "AI declares, engine computes, AI reads, AI decides, loop."** Every LLM can read JSON. That is the whole trick.
+**Design philosophy — the engine speaks the AI's own language.** The declaration layer is deliberately HTML/CSS-isomorphic: the model's deepest muscle memory. `grid_cards` reads like a CSS grid, `fit_mode` accepts `contain`/`cover` like `object-fit`, `density` accepts `comfortable`/`spacious`, `recipe` works like a component class. This is **not** HTML→PPTX conversion — nothing ever renders from HTML; the engine only borrows the vocabulary so a blind LLM can drive layout with knowledge it already has. The mapping lives in one place: `ppt_reflex/grid/agent_vocabulary.py`.
+
 
 ## Features
 
@@ -59,6 +61,9 @@ The AI reads the diagnostics, edits its declaration, and re-runs. A `CircuitBrea
 - **Three-tier ASCII feedback.** `L0` structure map (regions, skins, fills) · `L1` element map (one letter per element, `#` overlap, `!` overflow) · `L2` numeric text table (font size, line count, height, overflow pt).
 - **Guaranteed-fix loop.** The AI declares a fix direction (`b.declare_direction("split_slide")`) and re-runs. `CircuitBreaker` escalates: same direction twice → WARN, three times → BLOCK; three different mechanical tweaks → BLOCK; error-count stagnation → "stop micro-tuning."
 - **Real-time visualization (DSH plugin).** A `shell.overlay` panel previews each slide as it builds; per-element frames stream in real time. You can click an element, drag-box select, request a recolor, or flag a problem.
+- **Two-level correctness floor.** `geometry_ok` (zero geometric errors) and `harmony_ok` (zero aesthetic-rule violations) — both verifiable floors, never taste. The ceiling is the human at the panel.
+- **Harmony rules, OKLCH-measured.** 60-30-10 area color ratio, focal-point uniqueness, hue harmony (mono/analogous/complementary/triadic) — all measured in OKLCH, all thresholds centralised in `grid/rules.json`.
+- **Entry discipline.** `PPTBuilder(strict_tokens=True)` by default rejects raw colors and hand-written coordinates with `raw_color_forbidden`; the human panel path stays exempt — humans are the ceiling and may override (override-triggered contrast issues surface as `human_override_warning`).
 - **Aesthetic judgment stays human.** Palettes, hex codes, and presets are human-curated assets. The engine only enforces the *objective* floor — WCAG AA contrast (≥ 4.5:1) and legibility — and never pretends to have taste.
 - **Design tokens + recipes as human assets.** `tokens.json` / `recipes.json` hold tiered values (spacing, radius, shadow, type scale, color) and named components (`card`, `kpi`, `quote`). The AI references *level names*, never raw numbers; humans own the values.
 
@@ -74,6 +79,19 @@ The AI reads the diagnostics, edits its declaration, and re-runs. A `CircuitBrea
 | **ASCII layered feedback** | `L0`/`L1`/`L2` — structure, elements, and numeric text precision. |
 | **Render hook** | `set_render_frame_hook(fn)` fires per element before draw — the streaming-preview bridge. |
 | **DSH plugin bridge** | `_dsh_ppt_runner.py` — stdin JSON in, result JSON out, with streaming frames and ASCII attached. |
+
+## What's new in the harmony pass
+
+| Change | What it means |
+|:--|:--|
+| OKLCH colour core | `grid/oklch.py` — sRGB↔OKLCH, hue distance, chroma/lightness helpers |
+| Two-channel diagnostics | violations → `error`/`warning` (block `ok`); signals → `advisory` (never trimmed, never batch-folded) |
+| Area-based colour ratio | 60-30-10 bands measured by filled area; images enter via PIL dominant colour (`image_style_conflict` signal) |
+| Focal-point uniqueness | exactly one focal element per page (`focal_point.missing` / `split` / `ambiguous`) |
+| Hue harmony | mono / analogous / complementary / triadic, all in OKLCH; ≤2 high-chroma families per page |
+| Entry discipline | `strict_tokens=True` by default; agent-facing docstring rewritten without raw colours or coordinates |
+| CSS-isomorphic vocabulary | `contain`/`cover`, `comfortable`/`spacious`, `radius` alias; CSS hallucinations rejected with alternatives |
+| Region diagnostics | `inspect_slide(idx, elem_ids)` + `runner --inspect` — pure in-memory, T5-consistent schema |
 
 ## Quick Start
 
@@ -161,7 +179,7 @@ python _dsh_ppt_runner.py < deck_request.json
 
 ## DSH Plugin Workflow
 
-The DSH plugin is a **dynamic (session-level) Cordis plugin**. It is activated for the current session and must be re-activated after a process restart; persisting it into the host composition is on the roadmap.
+The DSH plugin is a **host-composed Cordis plugin**: it lives in the profile bundle and patch layer, and the same profile is shared by the Web harness and the DSH Desktop harness — one install, both ends. The `slideReflex` service is provided by the host layer; the agent preset (`ppt-maker`) only scopes the panel via its client Gate and no longer re-mounts the plugin.
 
 The conversation flow is a closed loop:
 
@@ -234,7 +252,8 @@ The engine is a floor, not a ceiling. Three layers let the agent take back contr
 
 ## Roadmap
 
-- **Persist the DSH plugin** into the host composition (today it is session-level dynamic).
+- **Golden-set regression (T6)** — baseline of ≥10 "beautiful" + ≥10 "ugly" decks with expected pass/block per rule; `make golden` diffs pass/intercept rates against `tests/golden/baseline.json` and fails on any regression. Threshold changes in `rules.json` must run it.
+- **Harvest golden cases** from real feedback (`_feedback_auto.json` history: user-"ugly" = negative, accepted decks = positive) via `tools/golden_harvest.py`.
 - **More recipes and tokens** — grow the human-curated asset layer (`kpi` variants, data-table recipes).
 - **More parameterized primitives** — bring `columns`/`gap`/`density`-style parameters to more archetypes.
 - **Reference-PPTX layout extraction** — `layout_extractor.py` already infers zones from an existing deck; wire it into `register_archetype()`.

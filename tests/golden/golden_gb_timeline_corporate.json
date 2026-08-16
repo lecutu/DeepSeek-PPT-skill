@@ -1,0 +1,39 @@
+{
+  "id": "gb_timeline_corporate",
+  "kind": "beautiful",
+  "template": "business",
+  "style": "corporate_minimal",
+  "strict_tokens": true,
+  "note": "timeline/roadmap: milestone cards on labels row.",
+  "expected": {
+    "ok": true,
+    "harmony_ok": true
+  },
+  "slides": [
+    {
+      "title": "Roadmap",
+      "archetype": "timeline",
+      "elements": [
+        {
+          "type": "title",
+          "text": "Milestones"
+        },
+        {
+          "type": "box",
+          "text": "Phase 1",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Phase 2",
+          "recipe": "card"
+        },
+        {
+          "type": "box",
+          "text": "Phase 3",
+          "recipe": "card"
+        }
+      ]
+    }
+  ]
+}
