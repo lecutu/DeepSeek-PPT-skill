@@ -15,7 +15,7 @@ const oneArg = () => [{
 const result = () => ({ mode: 'strict', typeSymbol: 'json', schema: anySchema })
 const loc = { file: 'lib/index.js', line: 1, column: 1 }
 
-const METHODS_WITH_ARG = ['build', 'framesFile', 'applyFeedbackBuild', 'savePalette', 'saveFeedback', 'saveSelection']
+const METHODS_WITH_ARG = ['build', 'framesFile', 'applyFeedbackBuild', 'savePalette', 'saveFeedback', 'saveSelection', 'renderSlides']
 const METHODS_NO_ARG = ['loadPalette', 'loadDeck']
 
 export const TYPERT_REMOTE = {

@@ -12,7 +12,7 @@ Request shape:
                            "layout_mode":"hero_right"}],
               "arrows":[{"from":"t1","to":"b1","text":"flow"}]}]}
 """
-import sys, json, io, traceback, contextlib
+import sys, json, io, os, traceback, contextlib
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 try:
@@ -130,6 +130,72 @@ def _run_inspect(argv: list) -> None:
                          ensure_ascii=False))
 
 
+def _safe_render_dir(req):
+    """Resolve a render output directory that stays inside the engine workspace."""
+    base = os.path.realpath(req.get("cwd") or r"D:\ppt")
+    requested = req.get("render_dir") or ""
+    if requested and not os.path.isabs(requested):
+        requested = os.path.join(base, requested)
+    if not requested:
+        requested = os.path.join(base, "_render_vision")
+    try:
+        target = os.path.realpath(requested)
+        if os.path.commonpath([base, target]) != base:
+            return os.path.join(base, "_render_vision")
+        return target
+    except Exception:
+        return os.path.join(base, "_render_vision")
+
+
+
+def _render_pngs(b, render_dir):
+    """Render each solved slide to PNG for vision-capable models/plugins."""
+    import os
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception:
+        return []
+    os.makedirs(render_dir, exist_ok=True)
+    from ppt_reflex.grid import GridCanvas, GridConfig, execute_phase1
+    paths = []
+    for i, spec in enumerate(b._slides):
+        try:
+            plan = b._plan(spec)
+            c = GridCanvas(GridConfig())
+            c.checkpoint()
+            execute_phase1(plan, c)
+            img = Image.new("RGB", (960, 540), "white")
+            d = ImageDraw.Draw(img)
+            for reg in plan.regions:
+                d.rectangle([reg.x, reg.y, reg.x + reg.w, reg.y + reg.h],
+                            outline="#94a3b8", width=1)
+            for pe in plan.elements:
+                p = pe.payload
+                x, y, w, h = pe.x, pe.y, pe.w, pe.h
+                if p is not None and getattr(p, "fill_color", None):
+                    d.rectangle([x, y, x + w, y + h],
+                                fill=tuple(int(v) for v in p.fill_color))
+                elif p is not None and getattr(p, "shape_id", ""):
+                    d.rectangle([x, y, x + w, y + h], outline="#334155", width=1)
+                if p is not None and getattr(p, "text", ""):
+                    text = str(p.text)
+                    font = None
+                    try:
+                        font = ImageFont.truetype("msyh.ttc",
+                                                  max(10, int(getattr(p, "font_size", 14) or 14)))
+                    except Exception:
+                        font = ImageFont.load_default()
+                    color = tuple(int(v) for v in p.font_color) if getattr(p, "font_color", None) else (15, 23, 42)
+                    d.multiline_text((x + 6, y + 6), text, fill=color, font=font)
+            path = os.path.join(render_dir, "slide_%02d.png" % i)
+            img.save(path)
+            paths.append({"slide": i, "path": path, "width": 960, "height": 540})
+        except Exception:
+            continue
+    return paths
+
+
+
 def main() -> None:
     if "--inspect" in sys.argv:
         _run_inspect(sys.argv)
@@ -198,10 +264,13 @@ def main() -> None:
             if live_url:
                 _push_preview(b, live_url)
             if req.get("stream"):
-                _build_streaming(b, req.get("output"))
+                _build_streaming(b, req.get("output"),
+                                 _safe_render_dir(req) if req.get("render_png") else None)
                 return  # result already emitted as a {"result": ...} JSONL line
             r = b.build(req.get("output"))
         _attach_ascii(b, r)
+        if req.get("render_png") or req.get("render_dir"):
+            r["rendered_slides"] = _render_pngs(b, _safe_render_dir(req))
         print(json.dumps(r, ensure_ascii=False, default=str))
     except Exception:
         print(json.dumps({"ok": False, "runner_error": traceback.format_exc(limit=5)},
@@ -245,7 +314,7 @@ def _attach_ascii(b, result: dict) -> None:
     result["ascii"] = pages
 
 
-def _build_streaming(b, output: str) -> dict:
+def _build_streaming(b, output: str, render_dir: str | None = None) -> dict:
     """Build one slide at a time, emitting per-element frames to stdout as JSONL
     ({"frame": {...}} lines), then a final {"result": {...}} line. True
     streaming: the consumer paints elements while the build is still running."""
@@ -286,6 +355,8 @@ def _build_streaming(b, output: str) -> dict:
     with contextlib.redirect_stdout(sys.stderr):
         r = b.build(output)
     _attach_ascii(b, r)
+    if render_dir:
+        r["rendered_slides"] = _render_pngs(b, render_dir)
     _emit_line({"result": r})
     return r
 

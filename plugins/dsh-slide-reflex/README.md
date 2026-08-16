@@ -45,6 +45,22 @@ then `dsh plugin --profile <name> add dsh-slide-reflex` (or `pnpm install` in th
         paletteFile: 'D:/ppt/_palette_auto.json'
 ```
 
+## Vision interface
+
+`slideReflex.renderSlides({ deck?, render_dir? })` renders every slide to a PNG under the engine workspace (`<cwd>/_render_vision` by default) and returns:
+
+```json
+{
+  "ok": true,
+  "rendered_slides": [
+    { "slide": 0, "path": "D:/ppt/_render_vision/slide_00.png", "width": 960, "height": 540 }
+  ]
+}
+```
+
+This lets a vision-capable model or a visual plugin inspect real slide images while keeping the normal text/ASCII diagnostics for blind models. `render_dir` is confined to the configured `cwd`; absolute paths outside it are ignored and the default directory is used instead.
+
+
 ## Known limitations
 
 - Requires the ppt-reflex engine repo checked out at `cwd` with `_dsh_ppt_runner.py` present.

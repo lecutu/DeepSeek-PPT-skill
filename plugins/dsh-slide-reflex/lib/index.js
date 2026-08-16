@@ -3,6 +3,7 @@
 // expanded by hand (the runtime does not enable decorator syntax); this
 // mirrors exactly what the typert generator emits.
 import { readFileSync, writeFileSync } from 'node:fs'
+import { isAbsolute, resolve } from 'node:path'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 function __runInitializers(thisArg, initializers, value) {
@@ -77,7 +78,7 @@ let SlideReflexGateway = (() => {
   return class SlideReflexGateway extends _classSuper {
     static {
       const _metadata = typeof Symbol === 'function' && Symbol.metadata ? Object.create(_classSuper[Symbol.metadata] ?? null) : void 0
-      const methods = ['build', 'framesFile', 'applyFeedbackBuild', 'savePalette', 'loadPalette', 'saveFeedback', 'saveSelection', 'loadDeck']
+      const methods = ['build', 'framesFile', 'applyFeedbackBuild', 'savePalette', 'loadPalette', 'saveFeedback', 'saveSelection', 'loadDeck', 'renderSlides']
       for (const m of methods) {
         __esDecorate(this, null, [Remote(m)], {
           kind: 'method', name: m, static: false, private: false,
@@ -181,6 +182,24 @@ let SlideReflexGateway = (() => {
         this.building = false
       }
     }
+
+      async renderSlides(request) {
+        const deck = (request && request.deck) || readJson(this.config.deckFile)
+        if (!deck) return { ok: false, error: 'no deck available — generate one in chat first' }
+        const base = resolve(this.config.cwd || 'D:/ppt')
+        const rawDir = request && request.render_dir ? String(request.render_dir) : ''
+        const wanted = rawDir ? (isAbsolute(rawDir) ? resolve(rawDir) : resolve(base, rawDir)) : resolve(base, '_render_vision')
+        const renderDir = wanted === base || wanted.startsWith(base + (process.platform === 'win32' ? '\\' : '/'))
+          ? wanted
+          : resolve(base, '_render_vision')
+        const res = await this.build(Object.assign({}, deck, { render_png: true, render_dir: renderDir }))
+        return {
+          ok: !!(res && res.ok),
+          result: (res && res.result) || null,
+          rendered_slides: (res && res.result && res.result.rendered_slides) || [],
+          hostError: (res && res.hostError) || null,
+        }
+      }
 
     async framesFile(request) {
       let all = []

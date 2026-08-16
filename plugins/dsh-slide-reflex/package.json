@@ -37,10 +37,25 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-typert-protocol": "*",
-    "zod": "*"
+    "@deepseek-ai/dsh-api-remotes": "*",
+      "@deepseek-ai/dsh-client-connection": "*",
+      "@deepseek-ai/dsh-client-locale": "*",
+      "@deepseek-ai/dsh-client-runtime": "*",
+      "@deepseek-ai/dsh-typert-protocol": "*",
+    "zod": "*",
+      "react": "^18.2.0"
+      
   },
-  "dsh": {
+  "devDependencies": {
+      "@deepseek-ai/cordis": "^4.0.1",
+      "@deepseek-ai/dsh-api-remotes": "*",
+      "@deepseek-ai/dsh-client-connection": "*",
+      "@deepseek-ai/dsh-client-locale": "*",
+      "@deepseek-ai/dsh-client-runtime": "*",
+      "@deepseek-ai/dsh-typert-protocol": "*",
+      "react": "^18.2.0"
+    },
+    "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
