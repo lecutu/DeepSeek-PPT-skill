@@ -87,3 +87,7 @@ _ref_report_raw.txt
 _posts/
 _imgs/
 ~$*
+
+# Deck drafts & runner noise (agent scratch, not source)
+_deck_*.json
+_runner_err.txt

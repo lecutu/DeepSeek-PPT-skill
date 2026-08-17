@@ -552,7 +552,7 @@ TYPERT = {
 
 | 键 | 默认值 |
 |:--|:--|
-| python | C:\Users\Lenovo\AppData\Local\Programs\Python\Python312\python.exe |
+| python | <python.exe path (host-specific)> |
 | cwd | D:\ppt |
 | framesFile | D:\ppt\_frames_auto.jsonl |
 | deckFile | D:\ppt\_deck_auto.json |
@@ -614,7 +614,7 @@ TYPERT = {
 Profile node_modules: ~/.dsh/profiles/web/node_modules/dsh-slide-reflex
 ```
 
-**package.json 依赖声明** (C:\Users\Lenovo\.dsh\profiles\web\package.json):
+**package.json 依赖声明** ($DSH_HOME\profiles\web\package.json):
 ```json
 "dependencies": { "dsh-slide-reflex": "link:D:/dsh-plugins/dsh-slide-reflex" }
 ```
@@ -629,7 +629,7 @@ Profile node_modules: ~/.dsh/profiles/web/node_modules/dsh-slide-reflex
 ```
 源: D:\ppt\plugins\ppt-maker-preset\agent.cordis.yml
     ↓ (手动复制)
-宿主预设: C:\Users\Lenovo\.dsh\.agent-presets\ppt-maker\agent.cordis.yml
+宿主预设: $DSH_HOME\.agent-presets\ppt-maker\agent.cordis.yml
 ```
 
 ### 升级流程
@@ -649,7 +649,7 @@ fc /b "D:\ppt\plugins\dsh-slide-reflex\lib\index.js" "D:\dsh-plugins\dsh-slide-r
 dir "C:\Users\Lenovo\.dsh\profiles\web\node_modules\dsh-slide-reflex"
 
 # 验证预设副本
-fc /b "D:\ppt\plugins\ppt-maker-preset\agent.cordis.yml" "C:\Users\Lenovo\.dsh\.agent-presets\ppt-maker\agent.cordis.yml"
+fc /b "D:\ppt\plugins\ppt-maker-preset\agent.cordis.yml" "$DSH_HOME\.agent-presets\ppt-maker\agent.cordis.yml"
 ```
 
 ---
