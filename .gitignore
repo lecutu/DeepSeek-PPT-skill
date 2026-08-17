@@ -82,3 +82,8 @@ _check_claude_install.ps1
 
 !_dsh_ppt_runner.py
 
+# Internal review materials & publication drafts (keep out of public repo)
+_ref_report_raw.txt
+_posts/
+_imgs/
+~$*
