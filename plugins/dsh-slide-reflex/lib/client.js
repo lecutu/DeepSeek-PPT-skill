@@ -1,44 +1,68 @@
-// dsh-slide-reflex — Client half: per-page live preview panel with
-// click/box-select feedback, recolor requests, palette picker, i18n.
-// Wrapped for the dsh ClientModuleLoader — every client bundle must register
-// via window.__ModuleLoader__.load({ id, factory }).
+// dsh-slide-reflex — Client half (v3: PNG-based preview browser)
+// v3 与 v2 的差异（架构变更）：
+//   - 视觉层：不再用帧流 canvas 重绘，改为展示引擎真实渲染的 PNG
+//     （watcher 构建自动带 render_png，输出到 cwd/_render_vision）。
+//   - 数据通道：轮询 previewState（PNG 列表 + 每页元素几何），单张图用
+//     slideImage 拉 base64。帧文件退役为"元素几何数据源"（框选命中用）。
+//   - 交互保留：点选元素 / 框选区域 → 改色 / 提问（反馈链路不变）。
+//   - 通信：直接 fetch 宿主 RPC（信封协议与网关一致），原生 setInterval。
 window.__ModuleLoader__.load({
   id: "dsh-slide-reflex",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
     const React = require("react");
-    const z = { any: () => ({ parse: (v) => v, _zod: { def: { shape: {} } }, safeParse: (v) => ({ success: true, data: v }) }) };
 
-const PACKAGE = 'dsh-slide-reflex'
 const SERVICE = 'slideReflex'
-const anySchema = z.any()
-const oneArg = () => [{ name: 'request', wire: 'request', source: 'json', codec: { mode: 'strict', typeSymbol: 'json', schema: anySchema } }]
-const result = () => ({ mode: 'strict', typeSymbol: 'json', schema: anySchema })
-const loc = { file: 'lib/index.js', line: 1, column: 1 }
-const METHODS_WITH_ARG = ['build', 'framesFile', 'applyFeedbackBuild', 'savePalette', 'saveFeedback', 'saveSelection', 'renderSlides']
-const METHODS_NO_ARG = ['loadPalette', 'loadDeck']
+const POLL_MS = 400
+const PAGE_W = 960
+const PAGE_H = 540
 
-const TYPERT_REMOTE = {
-  package: PACKAGE,
-  descriptors: [
-    ...METHODS_WITH_ARG.map((m) => ({
-      id: `${PACKAGE}#${SERVICE}/${m}`, service: SERVICE, namespace: SERVICE, method: m,
-      invocation: { kind: 'direct' }, parameters: oneArg(), result: result(), sourceLocation: loc,
-    })),
-    ...METHODS_NO_ARG.map((m) => ({
-      id: `${PACKAGE}#${SERVICE}/${m}`, service: SERVICE, namespace: SERVICE, method: m,
-      invocation: { kind: 'direct' }, parameters: [], result: result(), sourceLocation: loc,
-    })),
-  ],
+// ---------------------------------------------------------------------------
+// RPC helper — direct fetch to the host gateway.
+// ---------------------------------------------------------------------------
+function rpc(method, args) {
+  const rpcId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : 'r' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+  return fetch('/api/' + SERVICE + '/' + method, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId,
+      method: SERVICE + '/' + method,
+      payload: { args: args || {} },
+    }),
+  }).then((resp) => {
+    if (!resp.ok) throw new Error('HTTP ' + resp.status)
+    return resp.json()
+  }).then((env) => {
+    if (!env || env.type !== 'server-response') throw new Error('bad server envelope')
+    if (!env.result || env.result.ok !== true) {
+      const e = env.result && env.result.error
+      throw new Error((e && (e.message || e.code)) || 'rpc failed')
+    }
+    return env.result.value
+  })
 }
+
+const previewState = () => rpc('previewState')
+const slideImage = (slide) => rpc('slideImage', { request: { slide } })
+const loadPalette = () => rpc('loadPalette')
+const loadDeck = () => rpc('loadDeck')
+const saveSelection = (req) => rpc('saveSelection', { request: req })
+const saveFeedback = (req) => rpc('saveFeedback', { request: req })
+const savePalette = (req) => rpc('savePalette', { request: req })
+const applyFeedbackBuild = (req) => rpc('applyFeedbackBuild', { request: req })
+const buildDeck = (deck) => rpc('build', Object.assign({ action: 'build' }, deck))
 
 const I18N = {
   zh: {
     entry: 'PPT 预览', btnOpen: '▸ PPT 预览', title: 'PPT 预览', foot: 'PPT 制作',
     waitBuild: '等待构建（在对话里说需求，助手自动生成）',
     building: '构建中… ', elems: ' 个元素',
-    done: '完成 ✓ ', fail: '失败 ✗', loaded: '已加载 ', page: '第 ', pageOf: ' / ', pageUnit: ' 页',
+    done: '完成 ✓ ', fail: '失败 ✗', loaded: '已渲染 ', page: '第 ', pageOf: ' / ', pageUnit: ' 页',
     selPrefix: ' · 已选 ', rebuild: '重建',
     hint: '点选元素 / 拖拽框选区域，然后改色或提问题',
     feedbackTitle: '反馈请求', recolor: '改色', addRecolor: '+ 改色',
@@ -61,7 +85,7 @@ const I18N = {
     entry: 'PPT Preview', btnOpen: '▸ PPT Preview', title: 'PPT Preview', foot: 'PPT Maker',
     waitBuild: 'Waiting for build (state your need in chat, agent auto-generates)',
     building: 'Building… ', elems: ' elements',
-    done: 'Done ✓ ', fail: 'Failed ✗', loaded: 'Loaded ', page: 'Page ', pageOf: ' / ', pageUnit: '',
+    done: 'Done ✓ ', fail: 'Failed ✗', loaded: 'Rendered ', page: 'Page ', pageOf: ' / ', pageUnit: '',
     selPrefix: ' · selected ', rebuild: 'Rebuild',
     hint: 'Click element / drag to box-select, then recolor or ask',
     feedbackTitle: 'Feedback requests', recolor: 'Recolor', addRecolor: '+ Recolor',
@@ -82,72 +106,6 @@ const I18N = {
   },
 }
 
-// Renders one slide's frames into a 2d context. Coordinates are in the native
-// 960×540 space, scaled by W/960 so the same logic serves the full preview and
-// the 44×25 thumbnails. Rendering steps are identical to the original draw().
-function paint(g, page, selElemId, dragRect, W, H) {
-  const s = W / 960
-  g.clearRect(0, 0, W, H)
-  for (const f of page.values()) {
-    if (f.kind === 'region') {
-      g.setLineDash([4, 4]); g.strokeStyle = '#94a3b8'; g.lineWidth = 1
-      g.strokeRect(f.x * s, f.y * s, f.w * s, f.h * s); g.setLineDash([])
-      g.fillStyle = 'rgba(148,163,184,0.06)'; g.fillRect(f.x * s, f.y * s, f.w * s, f.h * s)
-      continue
-    }
-    if (f.fill) {
-      g.fillStyle = f.fill
-      const r = Math.min(8, f.w / 2, f.h / 2) * s
-      g.beginPath(); g.moveTo(f.x * s + r, f.y * s)
-      g.arcTo(f.x * s + f.w * s, f.y * s, f.x * s + f.w * s, f.y * s + f.h * s, r)
-      g.arcTo(f.x * s + f.w * s, f.y * s + f.h * s, f.x * s, f.y * s + f.h * s, r)
-      g.arcTo(f.x * s, f.y * s + f.h * s, f.x * s, f.y * s, r)
-      g.arcTo(f.x * s, f.y * s, f.x * s + f.w * s, f.y * s, r)
-      g.closePath(); g.fill()
-    }
-    if (f.text) {
-      g.fillStyle = f.fill && parseInt(f.fill.slice(1), 16) < 0x888888 ? '#ffffff' : '#0f172a'
-      g.font = ((f.font_size || 16) * s) + 'px Segoe UI, Microsoft YaHei, sans-serif'
-      g.textBaseline = 'top'
-      String(f.text).split('\n').slice(0, 6).forEach((ln, i) => {
-        g.fillText(ln.slice(0, 40), f.x * s + 8 * s, f.y * s + 8 * s + i * ((f.font_size || 16) + 4) * s, (f.w - 16) * s)
-      })
-    }
-    if (selElemId && f.elem_id === selElemId) {
-      g.strokeStyle = '#3b82f6'; g.lineWidth = 3
-      g.strokeRect(f.x * s - 2, f.y * s - 2, f.w * s + 4, f.h * s + 4)
-    }
-  }
-  if (dragRect) {
-    g.setLineDash([6, 4]); g.strokeStyle = '#3b82f6'; g.lineWidth = 2
-    g.strokeRect(dragRect.x * s, dragRect.y * s, dragRect.w * s, dragRect.h * s); g.setLineDash([])
-    g.fillStyle = 'rgba(59,130,246,0.12)'; g.fillRect(dragRect.x * s, dragRect.y * s, dragRect.w * s, dragRect.h * s)
-  }
-}
-
-// Mini thumbnail: repaints a single slide into a 44×25 canvas using the same
-// paint() routine (mini-canvas redraw path — no dataURL cache needed).
-function Thumb({ slide, active, onClick, framesRef, version }) {
-  const ref = React.useRef(null)
-  React.useEffect(() => {
-    const cv = ref.current
-    if (!cv) return
-    paint(cv.getContext('2d'), framesRef.current.get(slide) || new Map(), null, null, 44, 25)
-  }, [slide, version, framesRef])
-  return React.createElement('canvas', {
-    ref,
-    width: 44,
-    height: 25,
-    onClick,
-    className: 'dsr-thumb',
-    style: {
-      width: 44, height: 25, flex: '0 0 auto', cursor: 'pointer', display: 'block',
-      background: '#fff', borderRadius: 6, boxSizing: 'border-box',
-      border: active ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l1)',
-    },
-  })
-}
-
 const UI_STYLE_ID = 'dsh-slide-reflex-ui'
 const UI_CSS = [
   '@keyframes dsrSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }',
@@ -164,7 +122,7 @@ const UI_CSS = [
   '.dsr-btn2:hover { background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 85%, var(--dsw-alias-brand-primary)) !important; border-color: var(--dsw-alias-border-l2) !important; }',
   '.dsr-sw { transition: transform .12s ease; }',
   '.dsr-sw:hover { transform: scale(1.12); }',
-  '.dsr-thumb { transition: border-color .12s ease, box-shadow .12s ease; }',
+  '.dsr-thumb { transition: border-color .12s ease, box-shadow .12s ease; cursor: pointer; }',
   '.dsr-thumb:hover { border-color: var(--dsw-alias-brand-primary) !important; }',
   '.dsr-win input:not([type="color"]), .dsr-win textarea { transition: border-color .15s ease; }',
   '.dsr-win input:not([type="color"]):focus, .dsr-win textarea:focus { border-color: var(--dsw-alias-brand-primary) !important; outline: none; }',
@@ -178,22 +136,14 @@ function ensureStyle() {
 }
 
     module.exports = {
-      inject: ['timer', 'remote'],
+      inject: [],
       async apply(ctx) {
     const slots = ctx.get('slots')
     if (slots === undefined) return
     ensureStyle()
-    const disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE)
-    ctx.effect(() => disposeRemote, 'dsh-slide-reflex: remote')
-    ctx.effect(() => () => { const el = document.getElementById(UI_STYLE_ID); if (el) el.remove() }, 'dsh-slide-reflex: styles')
-    const svc = () => {
-      const s = ctx.remote.namespaces?.get(SERVICE)?.service
-      if (s === void 0) throw new Error('slideReflex remote namespace is not mounted')
-      return s
-    }
 
     function Panel(props) {
-      const [open, setOpen] = React.useState(true) // Gate 放行 = 已选 ppt-maker agent 模式 → 弹出预览窗口；用户 ✕ 后由椭圆入口重开
+      const [open, setOpen] = React.useState(true)
       const [lang, setLang] = React.useState(() => {
         try { return String(navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en' } catch { return 'zh' }
       })
@@ -208,83 +158,106 @@ function ensureStyle() {
       const [question, setQuestion] = React.useState('')
       const [requests, setRequests] = React.useState([])
       const [dragRect, setDragRect] = React.useState(null)
-      const [thumbRev, setThumbRev] = React.useState(0)
-      const canvasRef = React.useRef(null)
-      const framesBySlideRef = React.useRef(new Map())
-      const sinceRef = React.useRef(0)
+      const [imgTick, setImgTick] = React.useState(0)
+      const [pal, setPal] = React.useState({ accent_hex: '', bg_hex: '', swatches: [] })
+      const [deckText, setDeckText] = React.useState('')
+      const imgRef = React.useRef(null)
+      const wrapRef = React.useRef(null)
+      const previewRef = React.useRef({ epoch: null, building: false, rendered: [], elements: {}, images: {} })
       const epochRef = React.useRef(null)
       const autoOpenedRef = React.useRef(false)
       const dragStartRef = React.useRef(null)
-      const [deckText, setDeckText] = React.useState('')
-      const [pal, setPal] = React.useState({ accent_hex: '', bg_hex: '', swatches: [] })
+
+      // 预取一页 PNG 到缓存
+      const loadImage = (slide) => {
+        if (previewRef.current.images[slide] !== undefined) return
+        slideImage(slide).then((r) => {
+          if (r && r.ok && r.data) {
+            previewRef.current.images[slide] = 'data:image/png;base64,' + r.data
+            setImgTick((v) => v + 1)
+          }
+        }).catch(() => {})
+      }
+
+      // 预取所有已渲染页
+      const prefetchAll = () => {
+        for (const r of previewRef.current.rendered) loadImage(r.slide)
+      }
 
       React.useEffect(() => {
         if (open) {
-          svc().loadPalette().then((r) => { if (r && r.palette) setPal({ accent_hex: r.palette.accent_hex || '', bg_hex: r.palette.bg_hex || '', swatches: r.palette.swatches || [] }) }).catch(() => {})
+          loadPalette().then((r) => { if (r && r.palette) setPal({ accent_hex: r.palette.accent_hex || '', bg_hex: r.palette.bg_hex || '', swatches: r.palette.swatches || [] }) }).catch(() => {})
         }
-        const draw = () => {
-          const cv = canvasRef.current
-          if (!cv) return
-          paint(cv.getContext('2d'), framesBySlideRef.current.get(viewSlide) || new Map(), selElem, dragRect, 960, 540)
-        }
-        const iv = ctx.interval(async () => {
+        let alive = true
+        const tick = async () => {
           try {
-            const sinceBefore = sinceRef.current
-            const r = await svc().framesFile({ since: sinceBefore })
-            if (r && Array.isArray(r.frames)) {
-              const epochKnown = typeof r.epoch === 'number'
-              const epochChanged = epochKnown && r.epoch !== epochRef.current
+            const r = await previewState()
+            if (!alive) return
+            if (r && Array.isArray(r.rendered)) {
+              const epochChanged = typeof r.epoch === 'number' && r.epoch !== epochRef.current
               if (epochChanged) {
-                // framesFile epoch changed → the runner is writing a fresh
-                // build: drop the previous build's frames and restart the
-                // since cursor so the new frames stream in from 0.
                 epochRef.current = r.epoch
-                framesBySlideRef.current = new Map()
-                sinceRef.current = 0
-                setTotalSlides(0)
+                previewRef.current.images = {}
+                setViewSlide(0)
+                setSelElem(''); setSelArea(null)
               }
-              for (const f of r.frames) {
-                sinceRef.current = (f.seq || 0) + 1
-                if (f.clear_slide) {
-                  if (r.building) setViewSlide(f.slide || 0)
-                  continue
-                }
-                let page = framesBySlideRef.current.get(f.slide)
-                if (!page) { page = new Map(); framesBySlideRef.current.set(f.slide, page) }
-                page.set(f.seq, f)
+              const prev = previewRef.current
+              prev.epoch = r.epoch
+              prev.building = !!r.building
+              prev.rendered = r.rendered
+              prev.elements = r.elements || {}
+              const slides = r.rendered.length
+              setTotalSlides(slides)
+              if (slides > 0) {
+                if (viewSlide >= slides) setViewSlide(slides - 1)
+                prefetchAll()
               }
-              const slides = framesBySlideRef.current.size
-              if (slides > 0) setTotalSlides(slides)
-              if (r.frames.length > 0) { draw(); setThumbRev((v) => v + 1) }
-              if (r.building) {
-                // A fresh build begins when the framesFile epoch changes —
-                // slide the panel out once per build; ✕/mask mark it
-                // dismissed so it stays shut for the rest of this build.
-                if (epochChanged || (!epochKnown && sinceBefore === 0)) {
-                  autoOpenedRef.current = false
-                  setOpen(true)
-                  autoOpenedRef.current = true
-                }
-                setStatus(t.building + sinceRef.current + t.elems); setStatusKind('building')
-              }
-              else if (r.result) { if (r.result.ok) { setStatus(t.done + (r.result.summary || '')); setStatusKind('done') } else { setStatus(t.fail); setStatusKind('fail') } }
-              else if (sinceRef.current === 0) { setStatus(t.waitBuild); setStatusKind('wait') }
-              else { setStatus(t.loaded + sinceRef.current + t.elems); setStatusKind('loaded') }
+              if (r.building) { setStatus(t.building + t.elems.trim()); setStatusKind('building') }
+              else if (slides === 0) { setStatus(t.waitBuild); setStatusKind('wait') }
+              else if (epochChanged) { setStatus(t.loaded + slides + t.pageUnit); setStatusKind('done') }
+            } else {
+              setStatus(t.error + 'bad payload'); setStatusKind('fail')
             }
-          } catch { /* remote not ready */ }
-        }, 400)
-        return () => { iv() }
-      }, [open, viewSlide, selElem, dragRect, lang])
+          } catch (e) {
+            if (!alive) return
+            setStatus(t.error + (e && e.message ? e.message : String(e))); setStatusKind('fail')
+          }
+        }
+        tick()
+        const iv = setInterval(tick, POLL_MS)
+        return () => { alive = false; clearInterval(iv) }
+      }, [open, viewSlide, lang])
+
+      // 当前页图就绪后确保缓存命中
+      React.useEffect(() => {
+        if (open && totalSlides > 0) loadImage(viewSlide)
+      }, [open, viewSlide, totalSlides, imgTick])
 
       const goto = (d) => setViewSlide(Math.max(0, Math.min(totalSlides - 1, viewSlide + d)))
-      const savePal = (next) => {
-        setPal(next)
-        svc().savePalette({ palette: next }).catch(() => {})
-      }
+
+      // 坐标换算：显示尺寸 ↔ 960×540 页面坐标
       const toCanvas = (e) => {
-        const cv = canvasRef.current
-        const rect = cv.getBoundingClientRect()
-        return { x: (e.clientX - rect.left) * (960 / rect.width), y: (e.clientY - rect.top) * (540 / rect.height) }
+        const img = imgRef.current
+        if (!img) return { x: 0, y: 0 }
+        const rect = img.getBoundingClientRect()
+        return {
+          x: (e.clientX - rect.left) * (PAGE_W / rect.width),
+          y: (e.clientY - rect.top) * (PAGE_H / rect.height),
+        }
+      }
+      const scale = () => {
+        const img = imgRef.current
+        if (!img) return 1
+        const rect = img.getBoundingClientRect()
+        return { sx: rect.width / PAGE_W, sy: rect.height / PAGE_H }
+      }
+      const hitElements = (p) => {
+        const list = previewRef.current.elements[viewSlide] || []
+        const hit = []
+        for (const el of list) {
+          if (el.x <= p.x && p.x <= el.x + el.w && el.y <= p.y && p.y <= el.y + el.h) hit.push(el)
+        }
+        return hit
       }
       const onMouseDown = (e) => { dragStartRef.current = toCanvas(e); setDragRect(null) }
       const onMouseMove = (e) => {
@@ -301,16 +274,13 @@ function ensureStyle() {
         const p = toCanvas(e)
         const dx = p.x - s.x, dy = p.y - s.y
         if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
-          const page = framesBySlideRef.current.get(viewSlide) || new Map()
-          let hit = null
-          for (const f of [...page.values()].reverse()) {
-            if (f.elem_id && f.x <= p.x && p.x <= f.x + f.w && f.y <= p.y && p.y <= f.y + f.h) { hit = f; break }
-          }
-          if (hit) {
-            setSelElem(hit.elem_id)
+          const hit = hitElements(p)
+          if (hit.length > 0) {
+            const el = hit[hit.length - 1]
+            setSelElem(el.elem_id)
             setSelArea(null)
-            svc().saveSelection({ elem_id: hit.elem_id, kind: hit.kind, slide: viewSlide, text: hit.text ? String(hit.text).slice(0, 30) : '' }).catch(() => {})
-            setStatus(t.selectedElem + hit.elem_id + t.canEdit)
+            saveSelection({ elem_id: el.elem_id, kind: 'text', slide: viewSlide, text: el.text ? String(el.text).slice(0, 30) : '' }).catch(() => {})
+            setStatus(t.selectedElem + el.elem_id + t.canEdit)
           } else {
             setSelElem(''); setSelArea(null)
           }
@@ -318,21 +288,22 @@ function ensureStyle() {
         }
         const rect = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), w: Math.abs(p.x - s.x), h: Math.abs(p.y - s.y) }
         if (rect.w < 10 && rect.h < 10) return
-        const page = framesBySlideRef.current.get(viewSlide) || new Map()
-        const elems = [...page.values()].filter((f) => f.elem_id && f.x < rect.x + rect.w && f.x + f.w > rect.x && f.y < rect.y + rect.h && f.y + f.h > rect.y)
-        setSelArea({ ...rect, elems: elems.map((f) => f.elem_id) })
+        const elems = hitElements({ x: rect.x, y: rect.y }).concat(
+          previewRef.current.elements[viewSlide] || []).filter((el, i, arr) =>
+            arr.indexOf(el) === i && el.x < rect.x + rect.w && el.x + el.w > rect.x && el.y < rect.y + rect.h && el.y + el.h > rect.y)
+        setSelArea({ ...rect, elems: elems.map((el) => el.elem_id) })
         setSelElem('')
-        svc().saveSelection({ slide: viewSlide, area: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h) }, elems: elems.map((f) => f.elem_id) }).catch(() => {})
+        saveSelection({ slide: viewSlide, area: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h) }, elems: elems.map((el) => el.elem_id) }).catch(() => {})
         setStatus(t.boxSelected + elems.length + t.boxSelected2)
       }
+
       const addColorRequest = () => {
         if (!selElem) { setStatus(t.needElem); return }
-        const page = framesBySlideRef.current.get(viewSlide) || new Map()
-        const f = [...page.values()].find((x) => x.elem_id === selElem)
-        const label = f && f.text ? String(f.text).slice(0, 14) : selElem
+        const el = (previewRef.current.elements[viewSlide] || []).find((x) => x.elem_id === selElem)
+        const label = el && el.text ? String(el.text).slice(0, 14) : selElem
         const next = [...requests, { type: 'color', slide: viewSlide, elem_id: selElem, color_hex: reqColor, label }]
         setRequests(next)
-        svc().saveFeedback({ requests: next }).catch(() => {})
+        saveFeedback({ requests: next }).catch(() => {})
         setStatus(t.colorAdded + label + ' → ' + reqColor)
       }
       const addQuestion = () => {
@@ -348,14 +319,14 @@ function ensureStyle() {
         }
         setRequests(next)
         setQuestion('')
-        svc().saveFeedback({ requests: next }).catch(() => {})
+        saveFeedback({ requests: next }).catch(() => {})
         setStatus(t.questionNoted)
       }
       const applyAndRebuild = () => {
         const colors = requests.filter((r) => r.type === 'color')
         if (colors.length === 0) { setStatus(t.noColorReq); return }
         setStatus(t.applyRecolor)
-        svc().applyFeedbackBuild({ requests }).then((r) => {
+        applyFeedbackBuild({ requests }).then((r) => {
           if (r && (r.hostError || r.ok === false)) setStatus(t.applyFailed + String(r.hostError || 'build failed').slice(-200))
           else setStatus(t.rebuildStarted)
         }).catch((e) => setStatus(t.error + String(e)))
@@ -363,12 +334,13 @@ function ensureStyle() {
       const rebuildFromDeck = () => {
         try {
           const d = JSON.parse(deckText)
-          framesBySlideRef.current = new Map(); sinceRef.current = 0; setViewSlide(0); setTotalSlides(0)
+          previewRef.current.images = {}
+          setViewSlide(0); setTotalSlides(0)
           setStatus(t.rebuildInit)
-          svc().build(Object.assign({ action: 'build' }, d)).then(() => setStatus(t.rebuildDone)).catch((e) => setStatus(t.error + String(e)))
+          buildDeck(d).then(() => setStatus(t.rebuildDone)).catch((e) => setStatus(t.error + String(e)))
         } catch { setStatus(t.jsonInvalid) }
       }
-      const DEFAULT_SWATCHES = ['#1D4ED8', '#0F172A', '#1B3A5C', '#0052D9', '#C0392B', '#0D9488']
+      const DEFAULT_SWATCHES = ['#1D4ED8', '#0F172A', '#1B3A5C', '#0052D9', '#C0392B', '#0D9486']
       const swatches = pal.swatches && pal.swatches.length ? pal.swatches : DEFAULT_SWATCHES
 
       const C = { bg: 'var(--dsw-alias-bg-base)', section: 'var(--dsw-alias-bg-layer-2)', layer2: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderStrong: 'var(--dsw-alias-border-l2)', primary: 'var(--dsw-alias-brand-primary)', text: 'var(--dsw-alias-label-primary)', sub: 'var(--dsw-alias-label-secondary)', input: 'var(--dsw-alias-bg-layer-3)', warn: 'var(--dsw-alias-state-warn-primary)', err: 'var(--dsw-alias-state-error-primary)' }
@@ -377,8 +349,6 @@ function ensureStyle() {
       const btnPrimary = { background: C.primary, color: 'var(--dsw-alias-label-primary-foreground)', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', fontSize: 12 }
       const btn2 = { background: C.layer2, color: C.text, border: C.border, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }
       const sectTitle = { fontSize: 11, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.5px' }
-
-      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
       const dotColor = { wait: 'var(--dsw-alias-label-secondary)', building: 'var(--dsw-alias-state-warn-primary)', done: 'var(--dsw-alias-state-success-primary)', fail: 'var(--dsw-alias-state-error-primary)', loaded: 'var(--dsw-alias-brand-primary)' }[statusKind] || 'var(--dsw-alias-label-secondary)'
       const closePanel = () => { autoOpenedRef.current = true; setOpen(false) }
@@ -390,6 +360,27 @@ function ensureStyle() {
         'aria-label': t.title,
       }, 'PPT')
       if (!open) return entryBtn
+
+      // 选中/框选/拖拽高亮（显示坐标 = 页面坐标 × 显示缩放）
+      const sc = scale()
+      const overlays = []
+      const pushBox = (r, style) => {
+        if (!r) return
+        overlays.push(React.createElement('div', { key: overlays.length, style: {
+          position: 'absolute', pointerEvents: 'none', boxSizing: 'border-box',
+          left: r.x * sc.sx, top: r.y * sc.sy, width: r.w * sc.sx, height: r.h * sc.sy,
+          ...style,
+        } }))
+      }
+      if (selArea) pushBox(selArea, { border: '2px dashed #3b82f6', background: 'rgba(59,130,246,0.12)' })
+      if (selElem) {
+        const el = (previewRef.current.elements[viewSlide] || []).find((x) => x.elem_id === selElem)
+        if (el) pushBox(el, { border: '3px solid #3b82f6' })
+      }
+      if (dragRect) pushBox(dragRect, { border: '2px dashed #3b82f6', background: 'rgba(59,130,246,0.12)' })
+
+      const currentImg = previewRef.current.images[viewSlide]
+
       const maskEl = React.createElement('div', {
         className: 'dsr-mask',
         onClick: closePanel,
@@ -421,15 +412,22 @@ function ensureStyle() {
         ),
         React.createElement('div', { style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 } },
           React.createElement('div', { style: { background: C.section, border: C.border, borderRadius: 12, padding: 10, flex: '0 0 auto' } },
-            React.createElement('canvas', { ref: canvasRef, width: 960, height: 540,
-              onMouseDown: onMouseDown, onMouseMove: onMouseMove, onMouseUp: onMouseUp, title: t.hint,
-              style: { width: '100%', height: 'auto', background: '#fff', borderRadius: 8, display: 'block', cursor: 'crosshair', border: '1px solid var(--dsw-alias-border-l1)' } }),
+            React.createElement('div', { ref: wrapRef, style: { position: 'relative', lineHeight: 0 } },
+              currentImg
+                ? React.createElement('img', { ref: imgRef, src: currentImg, width: 960, height: 540,
+                    onMouseDown: onMouseDown, onMouseMove: onMouseMove, onMouseUp: onMouseUp, title: t.hint, draggable: false,
+                    style: { width: '100%', height: 'auto', background: '#fff', borderRadius: 8, display: 'block', cursor: 'crosshair', border: '1px solid var(--dsw-alias-border-l1)', userSelect: 'none' } })
+                : React.createElement('div', { ref: imgRef, style: { width: '100%', aspectRatio: '960 / 540', background: '#fff', borderRadius: 8, border: '1px solid var(--dsw-alias-border-l1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12, lineHeight: '1.5' } }, statusKind === 'wait' ? t.waitBuild : status),
+              ...overlays,
+            ),
           ),
           React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' } },
             React.createElement('button', { onClick: () => goto(-1), className: 'dsr-btn2', style: { ...btn2, padding: '6px 10px' } }, '◀'),
             React.createElement('div', { style: { flex: 1, display: 'flex', gap: 6, overflowX: 'auto', padding: '3px 2px', alignItems: 'center' } },
-              Array.from({ length: totalSlides }, (_, i) =>
-                React.createElement(Thumb, { key: i, slide: i, active: i === viewSlide, onClick: () => setViewSlide(i), framesRef: framesBySlideRef, version: thumbRev })),
+              previewRef.current.rendered.map((r) =>
+                React.createElement('img', { key: r.slide, src: previewRef.current.images[r.slide], width: 44, height: 25,
+                  onClick: () => setViewSlide(r.slide), className: 'dsr-thumb', title: t.page + (r.slide + 1),
+                  style: { width: 44, height: 25, flex: '0 0 auto', display: 'block', background: '#fff', borderRadius: 6, boxSizing: 'border-box', objectFit: 'cover', border: viewSlide === r.slide ? '2px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l1)' } })),
             ),
             React.createElement('span', { style: { fontSize: 11, color: C.sub, whiteSpace: 'nowrap' } },
               t.page + (viewSlide + 1) + t.pageOf + (totalSlides || '—') + t.pageUnit),
@@ -458,7 +456,7 @@ function ensureStyle() {
                 return React.createElement('div', { key: i, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.section, border: C.border, borderRadius: 8, borderLeft: '3px solid ' + barColor } },
                   icon,
                   React.createElement('span', { style: { flex: 1, fontSize: 11, color: 'var(--dsw-alias-label-primary)', wordBreak: 'break-word', minWidth: 0 } }, label),
-                  React.createElement('button', { onClick: () => { const nx = requests.filter((_, j) => j !== i); setRequests(nx); svc().saveFeedback({ requests: nx }).catch(() => {}) }, className: 'dsr-btn2', style: { background: 'transparent', color: 'var(--dsw-alias-state-error-primary)', border: 'none', cursor: 'pointer', fontSize: 13, padding: '2px 7px', borderRadius: 6, flex: '0 0 auto' } }, '✕'),
+                  React.createElement('button', { onClick: () => { const nx = requests.filter((_, j) => j !== i); setRequests(nx); saveFeedback({ requests: nx }).catch(() => {}) }, className: 'dsr-btn2', style: { background: 'transparent', color: 'var(--dsw-alias-state-error-primary)', border: 'none', cursor: 'pointer', fontSize: 13, padding: '2px 7px', borderRadius: 6, flex: '0 0 auto' } }, '✕'),
                 )
               }),
             ),
@@ -489,7 +487,7 @@ function ensureStyle() {
               React.createElement('textarea', { value: deckText, onChange: (e) => setDeckText(e.target.value), rows: 3, placeholder: t.deckPlaceholder,
                 style: { width: '100%', marginTop: 10, background: C.input, color: 'var(--dsw-alias-label-primary)', border: C.border, borderRadius: 8, padding: 8, fontFamily: 'monospace', fontSize: 11, boxSizing: 'border-box', resize: 'vertical' } }),
               React.createElement('div', { style: { marginTop: 8, display: 'flex', gap: 6 } },
-                React.createElement('button', { onClick: () => svc().loadDeck().then((r) => { if (r && r.deck) setDeckText(JSON.stringify(r.deck, null, 2)) }).catch(() => {}), className: 'dsr-btn2', style: { ...btn2 } }, t.loadDeck),
+                React.createElement('button', { onClick: () => loadDeck().then((r) => { if (r && r.deck) setDeckText(JSON.stringify(r.deck, null, 2)) }).catch(() => {}), className: 'dsr-btn2', style: { ...btn2 } }, t.loadDeck),
               ),
             ),
           ),

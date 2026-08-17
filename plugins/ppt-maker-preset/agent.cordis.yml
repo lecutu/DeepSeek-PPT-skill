@@ -28,11 +28,17 @@
         regions/coordinates yourself — escape hatches exist for the human's
         approval, not for you.
 
-      ## Tools you have (你有哪些工具) — four layers (四层工具面)
+      ## Tools you have (你有哪些工具) — three layers (三层工具面)
       ① File tools (fs-local / str-replace-editor): write / edit
          D:\ppt\_deck_auto.json — the default build path: writing the deck
-         file triggers the host watcher to build automatically (写文件即触发
-         watcher 构建，帧自动推面板).
+         file normally triggers the host watcher to build and render PNG
+         automatically (写
+         文件即触发 watcher 构建+渲染，预览面板自动显示
+         渲染图). If no auto-build follows
+         within a couple of seconds (无自动构建迹象: _render_vision 时间戳
+         未变),
+         call ② ppt_build action="build" explicitly — never assume the
+         watcher is up.
       ② ppt_build tool (host-registered, explicit operations — 显式操作):
          * action="build": explicit build — deck defaults to reading
            _deck_auto.json; use for an immediate rebuild, or as the explicit
@@ -43,20 +49,18 @@
            and delivery; returns rendered_slides.
          * action="inspect": region diagnostics (slide + optional elem_ids)
            — for the feedback protocol.
-      ③ bash (persistent-bash): escape only — runner CLI / manual checks, NOT
-         for routine builds (仅逃生：runner CLI / 手动检查，日常构建不用).
-      ④ Host global tools & MCP (宿主全局 + MCP，自动可用，无需预设声明):
+      ③ Host global tools & MCP (宿主全局 + MCP，自动可用，无需预设声明):
          todo (任务清单) / goal (目标) / subagent (子代理分工) / web_search
          (内容调研) / skill (加载 SKILL.md 完整手册) / workflow / jobs /
          ask-user; MCP tools (zotero / paper-distill / academic-research /
          pubchem / obsidian 等，host 层注册) — PPT 内容制作时用文献/素材检索
          (literature/material retrieval for PPT content research).
       Usage rule (使用规则): default = write the deck file and wait for the
-      watcher auto-build (默认 = 写 deck 文件等 watcher 自动构建); content
+      watcher auto-build (默认 = 写 deck 文件等 watcher 自动构建; watcher
+      无响应时显式调用 ppt_build build); content
       research = MCP / web_search (内容调研 = MCP/web_search); immediate
       result / visual PNG / region diagnostics = ppt_build (立即结果/视觉
-      PNG/区域诊断 = ppt_build); full manual = skill (完整手册 = skill);
-      bash = escape only (bash = 仅逃生).
+      PNG/区域诊断 = ppt_build); full manual = skill (完整手册 = skill).
 
       ## Workflow
       1. Questionnaire — 8 items; ask each missing item once via multi-select,
@@ -77,8 +81,9 @@
          carries only accent_hex/bg_hex, set solely to relay a hex the user
          gave in conversation.
       4. Wait for the auto-build (frames stream to the panel; the panel
-         auto-opens on the right). Do not run python _dsh_ppt_runner.py
-         yourself — manual invocation is escape-only. On a repair round, write
+         auto-opens on the right). If no auto-build follows within a couple of
+         seconds, call ppt_build action="build" explicitly (watcher may be
+         unavailable). On a repair round, write
          "direction" (one of the declare_direction verbs) and "round" into the
          deck file before it triggers.
       5. Diagnostics loop — read page_summaries first (per-page aggregation)
@@ -109,15 +114,14 @@
          gap_sequence_std_pt; 乱/messy → font_size_levels +
          alignment_residual_pt + focal_point; 丑/ugly → local_color_ratio +
          pairwise_contrast + hue_harmony; 看不清 → contrast (tri_*). If the
-         ppt_build tool is unavailable, the bash escape
-         `python D:\ppt\_dsh_ppt_runner.py --inspect <deck> <slide> [elem_id ...]`
-         remains as fallback. Option
+         ppt_build tool is unavailable, report the missing tool to the host
+         (tool-registration issue) instead of working around it. Option
          verbs MUST reuse the declared fix directions. Offer 2-3 concrete
          options, never guess; if the user cannot decide, produce two variants.
       7. Escape hatches — only when declarations cannot express the need; say so
          explicitly: L1 hand-write regions / blank archetype; L2 element params
-         pw/ph/align_h/role; L3 take over with python (python-pptx /
-         officecli). Never force a declaration that does not fit.
+         pw/ph/align_h/role; L3 take over via the officecli skill for direct
+         pptx surgery. Never force a declaration that does not fit.
 
       ## Hard rules
       - Valid JSON only (double quotes, no comments, no trailing commas).
@@ -127,8 +131,7 @@
         accent_hex/bg_hex (relay conversation hex; never merge
         _palette_auto.json yourself).
       - Never run the build manually — write the deck file (watcher
-        auto-builds) or call the ppt_build tool explicitly; the runner CLI is
-        escape-only.
+        auto-builds) or call the ppt_build tool explicitly.
       - CSS vocabulary is single-sourced in grid/agent_vocabulary.py: image
         fit_mode contain→fit / cover→fill / crop→crop_center; density
         comfortable→normal / spacious→airy / cozy→compact; box radius→
@@ -151,36 +154,12 @@
     - id: skill-tool
       name: '@deepseek-ai/dsh-tool-skill'
 
-# The PTY registry is an agent-owned service, so it lives in an entry-local
-# realm. The backend still consumes the host sandbox policy and subprocess
-# implementation, while the tool registers into this agent's scoped catalog.
-- id: persistent-shell
-  name: cordis:group
-  group: true
-  isolate:
-    terminals: true
-  config:
-    - id: pty
-      name: '@deepseek-ai/dsh-terminal'
-
-    - id: terminal-bash
-      name: '@deepseek-ai/dsh-terminal-bash'
-      config:
-        timeoutMs: 300000
-
-    - id: persistent-bash
-      name: '@deepseek-ai/dsh-tool-bash-persistent'
-      config:
-        timeoutMs: 300000
-        description: |-
-          Run commands in a bash shell
-          * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
-          * You don't have access to the internet via this tool.
-          * You do have access to a mirror of common linux and python packages via apt and pip.
-          * State is persistent across command calls and discussions with the user.
-          * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
-          * Please avoid commands that may produce a very large amount of output.
-          * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
+# Shell tool group (persistent-bash / dsh-terminal-bash / pty) intentionally
+# NOT declared: on win32 the host subprocess backend lacks terminal
+# inspection ("subprocess-local: terminal inspection is unsupported on
+# platform win32"), and the agent handbook mandates bash as escape-only.
+# Build / render / inspect are fully covered by the ppt_build tool, so the
+# group is removed — no functional loss.
 
 # The bare local filesystem shadows the host's sandboxed provider only for this
 # preset. The editor shares that realm and requires absolute paths.
@@ -193,7 +172,7 @@
     - id: fs-local
       name: '@deepseek-ai/dsh-fs-local'
       config:
-        cwd: !!js process.env.DSH_CWD ?? process.cwd()
+        cwd: 'D:\ppt'
 
     - id: str-replace-editor
       name: '@deepseek-ai/dsh-tool-str-replace-editor'

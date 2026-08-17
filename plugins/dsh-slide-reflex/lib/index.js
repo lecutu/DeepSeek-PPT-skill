@@ -2,9 +2,9 @@
 // ppt-reflex python runner and the Client preview panel. Decorators are
 // expanded by hand (the runtime does not enable decorator syntax); this
 // mirrors exactly what the typert generator emits.
-import { readFileSync, writeFileSync, renameSync, unlinkSync, realpathSync, existsSync, statSync, watchFile, unwatchFile } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, unlinkSync, realpathSync, existsSync, statSync, watchFile, unwatchFile, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { isAbsolute, resolve, dirname, basename, sep } from 'node:path'
+import { isAbsolute, resolve, dirname, basename, sep, join } from 'node:path'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
@@ -279,6 +279,7 @@ let SlideReflexGateway = (() => {
       this.lastDeckSnapshot = null
       this._watchState = null
       this._watchStop = null
+      this._pendingWatchBuild = false
       this._registerDeckWatcher()
     }
 
@@ -364,21 +365,34 @@ let SlideReflexGateway = (() => {
 
     async _runWatchBuild() {
       if (this.building) {
-        this._logWarn('watch: build already running, skipping this change')
+        // A build (explicit ppt_build or an earlier watch build) is running;
+        // the deck change must not be dropped — queue it and rebuild after.
+        this._logWarn('watch: build already running, queueing this change')
+        this._pendingWatchBuild = true
         return
       }
-      const deck = readJson(this.config.deckFile)
-      if (!deck || !Array.isArray(deck.slides)) {
-        this._logWarn('watch: deck file unreadable or empty, skipping')
-        return
-      }
-      this._logInfo('watch: deck changed → build')
       try {
-        const res = await this.build(deck)
-        if (res && res.hostError === 'busy') this._logWarn('watch: build already running, skipped')
-        else this._logInfo('watch: build ' + (res && res.ok ? 'ok' : 'failed') + (res && res.hostError ? ' — ' + res.hostError : ''))
-      } catch (e) {
-        this._logWarn('watch: build threw: ' + String(e && e.message ? e.message : e))
+        const deck = readJson(this.config.deckFile)
+        if (!deck || !Array.isArray(deck.slides)) {
+          this._logWarn('watch: deck file unreadable or empty, skipping')
+          return
+        }
+        this._logInfo('watch: deck changed → build')
+        try {
+          // watcher 触发的构建是"预览构建"：自动附带 PNG 渲染，
+          // 面板直接展示真实渲染图（render_dir 缺省 = cwd/_render_vision）。
+          const res = await this.build(Object.assign({}, deck, { render_png: true }))
+          if (res && res.hostError === 'busy') this._logWarn('watch: build already running, skipped')
+          else this._logInfo('watch: build ' + (res && res.ok ? 'ok' : 'failed') + (res && res.hostError ? ' — ' + res.hostError : ''))
+        } catch (e) {
+          this._logWarn('watch: build threw: ' + String(e && e.message ? e.message : e))
+        }
+      } finally {
+        if (this._pendingWatchBuild) {
+          this._pendingWatchBuild = false
+          this._logWarn('watch: queued change → rebuild')
+          this._scheduleWatchBuild()
+        }
       }
     }
 
@@ -440,7 +454,6 @@ let SlideReflexGateway = (() => {
       this.frames = []
       this.lastResult = null
       this.building = true
-      this.epoch += 1
       const req = Object.assign({}, request || {})
       req.stream = true
       delete req.live
@@ -526,6 +539,12 @@ let SlideReflexGateway = (() => {
         clearTimeout(timer)
         this._afterBuild(req)
         this.building = false
+        // Epoch advances only when the build has settled and the frames file
+        // has been rewritten, so every completed build is a new epoch for the
+        // panel: its since cursor rewinds and re-fetches the fresh frames.
+        // (framesFile additionally bumps the epoch when it detects a truncation
+        // mid-write, as a belt-and-braces rewind.)
+        this.epoch += 1
       }
     }
 
@@ -580,6 +599,53 @@ let SlideReflexGateway = (() => {
         resultOut = Object.assign({}, result, { summary: this.lastResult.summary })
       }
       return { ok: true, hostError: null, frames: all.slice(from), building: result === null && all.length > 0, result: resultOut, epoch }
+    }
+
+    // Preview-state RPC for the PNG-based panel: latest rendered slides
+    // (from cwd/_render_vision) plus per-slide element geometry parsed from
+    // the frames file (frames remain the geometry source; PNGs are the visuals).
+    async previewState() {
+      const dir = join(this.config.cwd, '_render_vision')
+      const rendered = []
+      try {
+        for (const name of readdirSync(dir)) {
+          const m = /^slide_(\d+)\.png$/.exec(name)
+          if (!m) continue
+          try {
+            const st = statSync(join(dir, name))
+            rendered.push({ slide: Number(m[1]), file: join(dir, name), mtime: st.mtimeMs })
+          } catch { /* skip */ }
+        }
+      } catch { /* render dir not created yet */ }
+      rendered.sort((a, b) => a.slide - b.slide)
+      const latest = new Map()
+      for (const f of readFramesFile(this.config.framesFile)) {
+        if (!f.elem_id) continue
+        const key = f.slide + ':' + f.elem_id
+        if (!latest.has(key) || f.seq > latest.get(key).seq) latest.set(key, f)
+      }
+      const elements = {}
+      for (const f of latest.values()) {
+        if (!elements[f.slide]) elements[f.slide] = []
+        elements[f.slide].push({
+          elem_id: f.elem_id,
+          x: f.x, y: f.y, w: f.w, h: f.h,
+          text: f.text ? String(f.text).replace(/\s+/g, ' ').slice(0, 30) : '',
+        })
+      }
+      return { ok: true, hostError: null, epoch: this.epoch, building: this.building, rendered, elements }
+    }
+
+    // One rendered slide as base64 data (PNG browser loads per-page images).
+    async slideImage(request) {
+      const slide = request && typeof request.slide === 'number' ? request.slide : 0
+      const file = join(this.config.cwd, '_render_vision', `slide_${String(slide).padStart(2, '0')}.png`)
+      try {
+        const data = readFileSync(file)
+        return { ok: true, hostError: null, slide, mtime: statSync(file).mtimeMs, data: data.toString('base64') }
+      } catch {
+        return { ok: false, hostError: 'slide image not found: ' + file, slide, data: null }
+      }
     }
 
     async applyFeedbackBuild(request) {
