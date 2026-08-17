@@ -646,7 +646,7 @@ Profile node_modules: ~/.dsh/profiles/web/node_modules/dsh-slide-reflex
 fc /b "D:\ppt\plugins\dsh-slide-reflex\lib\index.js" "D:\dsh-plugins\dsh-slide-reflex\lib\index.js"
 
 # 验证 node_modules 链接
-dir "C:\Users\Lenovo\.dsh\profiles\web\node_modules\dsh-slide-reflex"
+dir "$DSH_HOME\profiles\web\node_modules\dsh-slide-reflex"
 
 # 验证预设副本
 fc /b "D:\ppt\plugins\ppt-maker-preset\agent.cordis.yml" "$DSH_HOME\.agent-presets\ppt-maker\agent.cordis.yml"
