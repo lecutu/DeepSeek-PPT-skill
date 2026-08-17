@@ -8,9 +8,12 @@ _breaker_state.json are all KEPT — the panel and the watcher need them).
 What gets removed:
   - every *.pptx NOT tracked by git (any depth, incl. output/), e.g.
     ppt_reflex_demo.pptx, whitecollar_v2_*.pptx, _smoke.pptx, glam_royal.pptx
-  - render directories: _render/, _render_vision/
-  - stale runner diagnostics: _stream_out.jsonl, _stream_err.txt,
+  - stale render diagnostics: _stream_out.jsonl, _stream_err.txt,
     _ascii_out.json, _git_report.txt
+
+What is KEPT (live preview data):
+  - _render_vision/  — PNG previews rendered by the watcher; the PNG-based
+    preview panel reads them. Deleting them blanks the panel.
 
 Usage:
   python cleanup_tmp.py            # actually delete
@@ -52,15 +55,8 @@ def main() -> int:
         if p.lower().endswith(".pptx") and os.path.normpath(p) not in tracked:
             targets.append(p)
 
-    # 2) render output directories
-    for d in ("_render", "_render_vision"):
-        full = os.path.join(ROOT, d)
-        if os.path.isdir(full):
-            for p in walk(full):
-                targets.append(p)
-            targets.append(full + os.sep)  # dir marker
-
-    # 3) stale runner diagnostics
+    # 2) stale render diagnostics (NOT _render_vision — that is live preview
+    #    data for the PNG-based panel; deleting it blanks the preview)
     for fn in ("_stream_out.jsonl", "_stream_err.txt", "_ascii_out.json", "_git_report.txt"):
         p = os.path.join(ROOT, fn)
         if os.path.isfile(p):
