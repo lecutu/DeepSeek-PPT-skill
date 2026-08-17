@@ -51,7 +51,10 @@ function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, e
 }
 
 const DEFAULTS = {
-  python: 'C:\\Users\\Lenovo\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+  // Python interpreter: resolved via PATH by default; override with the
+  // DSH_PPT_PYTHON env var or a cordis.patch.yml config row (no machine
+  // paths hard-coded in the repo).
+  python: process.env.DSH_PPT_PYTHON || 'python',
   cwd: 'D:\\ppt',
   framesFile: 'D:\\ppt\\_frames_auto.jsonl',
   deckFile: 'D:\\ppt\\_deck_auto.json',

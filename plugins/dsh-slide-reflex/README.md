@@ -128,7 +128,7 @@ Explicit render example:
 
 - Requires the ppt-reflex engine repo checked out at `cwd` with `_dsh_ppt_runner.py` present.
 - Recolor requests apply to box/shape fill colors; semantic questions are forwarded to the agent, not auto-applied.
-- Host defaults hard-code a Windows python path when no config row is given.
+- Host defaults resolve python via PATH (override: DSH_PPT_PYTHON env or a config row).
 - Panel entry only appears in sessions composed from the `ppt-maker` agent preset (`agentPreset === 'ppt-maker'`).
 - Box-select hit-testing relies on frame geometry; if frames are missing (failed build) the selection may be empty even though the PNG rendered.
 
